@@ -17,6 +17,10 @@ It mirrors the UlamaI pattern for finance reporting:
   - `ixbrl-gating`: structural + iXBRL preflight + taxonomy + DEI checks
   - `fsd-consistency`: adds accounting consistency rules on top of full preflight
   - `companyfacts-consistency`: tuned for SEC companyfacts-derived filings
+- Pilot tooling:
+  - readiness checker for sample/rule targets
+  - recent SEC filing discovery for 50–100 filing pilot batches
+  - baseline discrepancy comparison metrics
 - Rule classes covering:
   - iXBRL primary/attachment gating checks
   - iXBRL submission suspension risk detection from XBRL errors
@@ -44,6 +48,7 @@ It mirrors the UlamaI pattern for finance reporting:
 python3 -m formalfinance.cli profiles
 python3 -m formalfinance.cli validate examples/filing_clean.json --profile ixbrl-gating
 python3 -m formalfinance.cli evidence-pack examples/filing_risky.json --profile fsd-consistency --output-dir /tmp/formalfinance-pack
+python3 -m formalfinance.cli pilot-readiness
 ```
 
 ## SEC companyfacts workflow
@@ -63,6 +68,53 @@ python3 -m formalfinance.cli normalize-companyfacts /tmp/apple.companyfacts.json
 # 3) Validate / build evidence
 python3 -m formalfinance.cli validate /tmp/apple.filing.json --profile companyfacts-consistency
 python3 -m formalfinance.cli evidence-pack /tmp/apple.filing.json --profile companyfacts-consistency --output-dir /tmp/apple-pack
+```
+
+## Pilot Readiness And Sampling
+
+```bash
+# Check pilot prerequisites (rule count window, scope coverage, baseline tooling)
+python3 -m formalfinance.cli pilot-readiness --min-rules 30 --max-rules 50 --min-filings 50 --max-filings 100
+
+# Discover candidate filings for a pilot batch (requires SEC User-Agent)
+python3 -m formalfinance.cli discover-recent-filings \
+  --forms 10-K,10-Q \
+  --max-filings 100 \
+  --cik-limit 250 \
+  --filed-on-or-after 2025-10-01 \
+  --user-agent "FormalFinance/0.1.0 contact@example.com" \
+  --output /tmp/formalfinance.pilot.filings.json
+```
+
+## Baseline Comparison
+
+Use `compare-baseline` to score agreement between FormalFinance and another validator.
+
+```bash
+python3 -m formalfinance.cli compare-baseline \
+  /tmp/formalfinance.report.json \
+  /tmp/baseline.report.json \
+  --output /tmp/formalfinance.baseline.compare.json
+```
+
+Accepted baseline JSON shapes:
+
+```json
+{
+  "findings": [
+    { "code": "ixbrl.primary_document_constraints", "severity": "error" },
+    { "code": "taxonomy.relationship_target_exists", "severity": "warning" }
+  ]
+}
+```
+
+Or:
+
+```json
+{
+  "errors": [{ "id": "RULE-123" }],
+  "warnings": [{ "id": "RULE-456" }]
+}
 ```
 
 ## Canonical filing JSON shape

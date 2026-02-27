@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 
+from .baseline_compare import compare_with_baseline, load_json_file
 from .certificate import issue_certificate
 from .evidence import (
     build_evidence_pack,
@@ -13,7 +14,9 @@ from .evidence import (
     run_validation,
     selection_to_dict,
 )
+from .pilot_readiness import build_readiness_report
 from .profiles import list_profiles, normalize_profile_name
+from .sec_discovery import discover_recent_filings
 from .sec_ingest import companyfacts_to_filing, fetch_companyfacts_json
 
 
@@ -120,6 +123,41 @@ def _cmd_evidence_pack(args: argparse.Namespace) -> int:
     }
     print(json.dumps(manifest, indent=2, sort_keys=True))
     return _exit_code_for_status(result.status)
+
+
+def _cmd_discover_filings(args: argparse.Namespace) -> int:
+    user_agent = args.user_agent or os.getenv("FORMALFINANCE_USER_AGENT", "")
+    forms = [item.strip() for item in args.forms.split(",") if item.strip()]
+    payload = discover_recent_filings(
+        user_agent=user_agent,
+        forms=forms,
+        max_filings=args.max_filings,
+        cik_limit=args.cik_limit,
+        filed_on_or_after=args.filed_on_or_after,
+        timeout_seconds=args.timeout,
+    )
+    _write_json(args.output, payload)
+    return 0
+
+
+def _cmd_compare_baseline(args: argparse.Namespace) -> int:
+    formal = load_json_file(args.formal_report)
+    baseline = load_json_file(args.baseline_report)
+    comparison = compare_with_baseline(formal, baseline).as_dict()
+    _write_json(args.output, comparison)
+    return 0 if comparison["metrics"]["meets_95pct_target"] else 3
+
+
+def _cmd_pilot_readiness(args: argparse.Namespace) -> int:
+    report = build_readiness_report(
+        min_rules=args.min_rules,
+        max_rules=args.max_rules,
+        min_filings=args.min_filings,
+        max_filings=args.max_filings,
+        user_agent=args.user_agent,
+    )
+    _write_json(args.output, report)
+    return 0 if report["summary"]["ready"] else 2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -231,6 +269,88 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not emit certificate even when status is clean.",
     )
     evidence_parser.set_defaults(handler=_cmd_evidence_pack)
+
+    discover_parser = subparsers.add_parser(
+        "discover-recent-filings",
+        help="Discover recent SEC filings suitable for pilot sampling.",
+    )
+    discover_parser.add_argument(
+        "--forms",
+        default="10-K,10-Q",
+        help="Comma-separated SEC forms to include.",
+    )
+    discover_parser.add_argument(
+        "--max-filings",
+        type=int,
+        default=100,
+        help="Maximum number of discovered filings to return.",
+    )
+    discover_parser.add_argument(
+        "--cik-limit",
+        type=int,
+        default=250,
+        help="Maximum number of issuers (CIKs) to scan.",
+    )
+    discover_parser.add_argument(
+        "--filed-on-or-after",
+        default=None,
+        help="Optional lower filing-date bound (YYYY-MM-DD).",
+    )
+    discover_parser.add_argument(
+        "--user-agent",
+        default=None,
+        help="SEC-compliant User-Agent header (or set FORMALFINANCE_USER_AGENT).",
+    )
+    discover_parser.add_argument("--timeout", type=int, default=30, help="HTTP timeout in seconds.")
+    discover_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save discovered filing list JSON. Prints to stdout if omitted.",
+    )
+    discover_parser.set_defaults(handler=_cmd_discover_filings)
+
+    baseline_parser = subparsers.add_parser(
+        "compare-baseline",
+        help="Compare FormalFinance findings against baseline validator output.",
+    )
+    baseline_parser.add_argument("formal_report", help="Path to FormalFinance report JSON.")
+    baseline_parser.add_argument("baseline_report", help="Path to baseline report JSON.")
+    baseline_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save comparison JSON. Prints to stdout if omitted.",
+    )
+    baseline_parser.set_defaults(handler=_cmd_compare_baseline)
+
+    readiness_parser = subparsers.add_parser(
+        "pilot-readiness",
+        help="Check whether pilot prerequisites and scope controls are in place.",
+    )
+    readiness_parser.add_argument("--min-rules", type=int, default=30, help="Minimum target rule count.")
+    readiness_parser.add_argument("--max-rules", type=int, default=50, help="Maximum target rule count.")
+    readiness_parser.add_argument(
+        "--min-filings",
+        type=int,
+        default=50,
+        help="Minimum pilot sample size target.",
+    )
+    readiness_parser.add_argument(
+        "--max-filings",
+        type=int,
+        default=100,
+        help="Maximum pilot sample size target.",
+    )
+    readiness_parser.add_argument(
+        "--user-agent",
+        default=None,
+        help="Optional SEC User-Agent override for readiness checks.",
+    )
+    readiness_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save readiness JSON. Prints to stdout if omitted.",
+    )
+    readiness_parser.set_defaults(handler=_cmd_pilot_readiness)
 
     return parser
 

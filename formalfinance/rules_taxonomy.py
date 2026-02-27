@@ -11,6 +11,13 @@ from .rules import Finding, Rule
 PREFIX_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 RESERVED_STANDARD_PREFIXES = {"us-gaap", "dei", "ifrs-full", "xbrli", "link", "xlink", "iso4217"}
 DEFAULT_LABEL_MAX_LEN = 511
+ALLOWED_ARCROLES = {
+    "http://www.xbrl.org/2003/arcrole/summation-item",
+    "http://www.xbrl.org/2003/arcrole/parent-child",
+    "http://www.xbrl.org/2003/arcrole/general-special",
+    "http://www.xbrl.org/2003/arcrole/essence-alias",
+    "http://www.xbrl.org/2003/arcrole/requires-element",
+}
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -80,6 +87,12 @@ def _label_rows(package: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         out.append(dict(row))
     return out
+
+
+def _prefix_from_concept(concept: str) -> str:
+    if ":" not in concept:
+        return ""
+    return concept.split(":", 1)[0]
 
 
 @dataclass(frozen=True)
@@ -173,6 +186,33 @@ class TaxonomyNamespacePrefixRule:
 
 
 @dataclass(frozen=True)
+class TaxonomyNamespaceUriSchemeRule:
+    rule_id: str = "taxonomy.namespace_uri_scheme"
+    description: str = "Namespace URIs should use accepted schemes (http, https, or urn)."
+
+    def run(self, filing: Filing) -> list[Finding]:
+        package = _taxonomy(filing)
+        if not package:
+            return []
+        findings: list[Finding] = []
+        for row in _namespace_rows(package):
+            prefix = str(row.get("prefix") or "").strip()
+            uri = str(row.get("uri") or "").strip()
+            if not uri:
+                continue
+            lowered = uri.lower()
+            if not (lowered.startswith("http://") or lowered.startswith("https://") or lowered.startswith("urn:")):
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="error",
+                        message=f"Namespace '{prefix}' uses unsupported URI scheme in '{uri}'.",
+                    )
+                )
+        return findings
+
+
+@dataclass(frozen=True)
 class TaxonomyLabelRules:
     max_label_length: int = DEFAULT_LABEL_MAX_LEN
     rule_id: str = "taxonomy.label_constraints"
@@ -232,6 +272,88 @@ class TaxonomyLabelRules:
 
 
 @dataclass(frozen=True)
+class TaxonomyLabelRoleFormatRule:
+    rule_id: str = "taxonomy.label_role_format"
+    description: str = "Label roles should be URI-like when provided."
+
+    def run(self, filing: Filing) -> list[Finding]:
+        package = _taxonomy(filing)
+        if not package:
+            return []
+        findings: list[Finding] = []
+        for label in _label_rows(package):
+            concept = str(label.get("concept") or "").strip()
+            role = str(label.get("role") or "").strip()
+            if not role:
+                continue
+            lowered = role.lower()
+            if not (
+                lowered.startswith("http://")
+                or lowered.startswith("https://")
+                or lowered.startswith("urn:")
+            ):
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="warning",
+                        message=f"Label role for '{concept}' is not URI-like ('{role}').",
+                    )
+                )
+        return findings
+
+
+@dataclass(frozen=True)
+class TaxonomyElementPrefixDeclaredRule:
+    rule_id: str = "taxonomy.element_prefix_declared"
+    description: str = "Each taxonomy element concept prefix must be declared in namespaces."
+
+    def run(self, filing: Filing) -> list[Finding]:
+        package = _taxonomy(filing)
+        if not package:
+            return []
+        findings: list[Finding] = []
+        declared = {str(row.get("prefix") or "").strip() for row in _namespace_rows(package)}
+        for element in _element_rows(package):
+            concept = element["concept"]
+            prefix = _prefix_from_concept(concept)
+            if prefix and prefix not in declared:
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="error",
+                        message=f"Element concept '{concept}' uses undeclared namespace prefix '{prefix}'.",
+                    )
+                )
+        return findings
+
+
+@dataclass(frozen=True)
+class TaxonomyElementDuplicateRule:
+    rule_id: str = "taxonomy.element_duplicate"
+    description: str = "Taxonomy element concepts should be unique."
+
+    def run(self, filing: Filing) -> list[Finding]:
+        package = _taxonomy(filing)
+        if not package:
+            return []
+        findings: list[Finding] = []
+        seen: set[str] = set()
+        for element in _element_rows(package):
+            concept = element["concept"]
+            if concept in seen:
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="error",
+                        message=f"Duplicate taxonomy element concept '{concept}'.",
+                    )
+                )
+            else:
+                seen.add(concept)
+        return findings
+
+
+@dataclass(frozen=True)
 class TaxonomyRelationshipTargetExistsRule:
     rule_id: str = "taxonomy.relationship_target_exists"
     description: str = "All relationship endpoints must refer to defined taxonomy concepts."
@@ -262,6 +384,66 @@ class TaxonomyRelationshipTargetExistsRule:
                         severity="error",
                         message=f"Relationship target '{target}' is not defined in taxonomy elements.",
                         details={"arcrole": arcrole},
+                    )
+                )
+        return findings
+
+
+@dataclass(frozen=True)
+class TaxonomyRelationshipArcroleRule:
+    rule_id: str = "taxonomy.relationship_arcrole"
+    description: str = "Relationship arcroles should be present and recognized."
+
+    def run(self, filing: Filing) -> list[Finding]:
+        package = _taxonomy(filing)
+        if not package:
+            return []
+        findings: list[Finding] = []
+        for relationship in _relationships(package):
+            arcrole = str(relationship.get("arcrole") or "").strip()
+            if not arcrole:
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="error",
+                        message="Taxonomy relationship is missing arcrole.",
+                    )
+                )
+                continue
+            lowered = arcrole.lower()
+            if lowered in ALLOWED_ARCROLES:
+                continue
+            if "xbrl.org/2003/arcrole/" not in lowered and "xbrl.org/arcrole/" not in lowered:
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="warning",
+                        message=f"Relationship arcrole '{arcrole}' is not a recognized standard arcrole URI.",
+                    )
+                )
+        return findings
+
+
+@dataclass(frozen=True)
+class TaxonomyRelationshipNoSelfLoopRule:
+    rule_id: str = "taxonomy.relationship_no_self_loop"
+    description: str = "Taxonomy relationships should not point from a concept to itself."
+
+    def run(self, filing: Filing) -> list[Finding]:
+        package = _taxonomy(filing)
+        if not package:
+            return []
+        findings: list[Finding] = []
+        for relationship in _relationships(package):
+            source = str(relationship.get("from") or "").strip()
+            target = str(relationship.get("to") or "").strip()
+            if source and target and source == target:
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="error",
+                        message=f"Relationship self-loop detected for concept '{source}'.",
+                        details={"arcrole": relationship.get("arcrole")},
                     )
                 )
         return findings
@@ -330,6 +512,54 @@ class TaxonomyCalculationNoCycleRule:
 
 
 @dataclass(frozen=True)
+class TaxonomyCalculationWeightRule:
+    rule_id: str = "taxonomy.calculation_weight"
+    description: str = "Calculation arcs should define numeric weight values in {-1, 1}."
+
+    def run(self, filing: Filing) -> list[Finding]:
+        package = _taxonomy(filing)
+        if not package:
+            return []
+        findings: list[Finding] = []
+        for rel in _relationships(package):
+            arcrole = str(rel.get("arcrole") or "")
+            if not _is_calculation_arc(arcrole):
+                continue
+            source = str(rel.get("from") or "").strip()
+            target = str(rel.get("to") or "").strip()
+            weight_raw = rel.get("weight")
+            if weight_raw is None:
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="error",
+                        message=f"Calculation relationship '{source}' -> '{target}' is missing weight.",
+                    )
+                )
+                continue
+            try:
+                weight = float(weight_raw)
+            except (TypeError, ValueError):
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="error",
+                        message=f"Calculation relationship '{source}' -> '{target}' has non-numeric weight '{weight_raw}'.",
+                    )
+                )
+                continue
+            if weight not in {-1.0, 1.0}:
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="warning",
+                        message=f"Calculation relationship '{source}' -> '{target}' uses unusual weight {weight}.",
+                    )
+                )
+        return findings
+
+
+@dataclass(frozen=True)
 class TaxonomyCustomConceptRelationshipRule:
     rule_id: str = "taxonomy.custom_concept_relationship_coverage"
     description: str = "Custom concepts should participate in at least one taxonomy relationship."
@@ -364,4 +594,30 @@ class TaxonomyCustomConceptRelationshipRule:
                     message=f"Custom concept '{concept}' is isolated from taxonomy relationship networks.",
                 )
             )
+        return findings
+
+
+@dataclass(frozen=True)
+class TaxonomyCustomConceptPrefixRule:
+    rule_id: str = "taxonomy.custom_concept_prefix"
+    description: str = "Custom concepts should use non-reserved prefixes."
+
+    def run(self, filing: Filing) -> list[Finding]:
+        package = _taxonomy(filing)
+        if not package:
+            return []
+        findings: list[Finding] = []
+        for row in _element_rows(package):
+            if not bool(row.get("is_custom")):
+                continue
+            concept = row["concept"]
+            prefix = _prefix_from_concept(concept)
+            if prefix in RESERVED_STANDARD_PREFIXES:
+                findings.append(
+                    Finding(
+                        rule_id=self.rule_id,
+                        severity="error",
+                        message=f"Custom concept '{concept}' uses reserved prefix '{prefix}'.",
+                    )
+                )
         return findings

@@ -10,12 +10,14 @@
 ## Phase 1 (current): EDGAR/iXBRL pre-flight foundation
 
 - SEC companyfacts fetch + normalization to canonical filing schema
+- SEC recent-filing discovery tooling for controlled 50–100 filing pilots
 - Structural preflight checks (context/date semantics, QName shape, unit/duplicate consistency)
 - Inline XBRL document/attachment gating checks (HTML extension, active content, external references)
 - Inline XBRL submission suspension risk detection from package-level XBRL errors
 - Taxonomy validation module (namespace/prefix, labels, relationship endpoint integrity, calculation cycle detection)
 - Accounting checks (balance-sheet equation, period-type heuristics)
 - Evidence-pack generation (report, trace, summary, manifest, clean certificate)
+- Baseline discrepancy comparison metrics for validator agreement analysis
 
 ## Phase 2: EDGAR rulebook and proof-carrying conformance
 

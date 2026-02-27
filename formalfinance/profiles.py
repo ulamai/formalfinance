@@ -3,11 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .rules_ixbrl import (
+    InlineAtLeastOneInlineDocumentRule,
+    InlineAttachmentSizeRule,
+    InlineContextUsageRule,
+    InlineDuplicateFactIdRule,
+    InlineFactPresenceRule,
+    InlineFilenameSafetyRule,
+    InlineMetadataFieldHintsRule,
     InlineAttachmentHtmlRule,
     InlineMetadataPresenceRule,
     InlineNoDisallowedHtmlRule,
     InlineNoExternalReferencesRule,
     InlinePrimaryDocumentRule,
+    InlineXbrlErrorStructureRule,
     InlineXbrlErrorSuspensionRiskRule,
 )
 from .rules import (
@@ -28,11 +36,19 @@ from .rules import (
     UnitConsistencyByConceptRule,
 )
 from .rules_taxonomy import (
+    TaxonomyCalculationWeightRule,
+    TaxonomyCustomConceptPrefixRule,
     TaxonomyCalculationNoCycleRule,
     TaxonomyCustomConceptRelationshipRule,
+    TaxonomyElementDuplicateRule,
+    TaxonomyElementPrefixDeclaredRule,
     TaxonomyLabelRules,
+    TaxonomyLabelRoleFormatRule,
     TaxonomyMetadataPresenceRule,
     TaxonomyNamespacePrefixRule,
+    TaxonomyNamespaceUriSchemeRule,
+    TaxonomyRelationshipArcroleRule,
+    TaxonomyRelationshipNoSelfLoopRule,
     TaxonomyRelationshipTargetExistsRule,
 )
 
@@ -69,8 +85,16 @@ def _core_structural_rules() -> list[Rule]:
 def _ixbrl_preflight_rules() -> list[Rule]:
     return [
         InlineMetadataPresenceRule(),
+        InlineFactPresenceRule(),
         InlinePrimaryDocumentRule(),
+        InlineAtLeastOneInlineDocumentRule(),
+        InlineFilenameSafetyRule(),
+        InlineAttachmentSizeRule(),
         InlineAttachmentHtmlRule(),
+        InlineXbrlErrorStructureRule(),
+        InlineDuplicateFactIdRule(),
+        InlineContextUsageRule(),
+        InlineMetadataFieldHintsRule(),
         InlineNoDisallowedHtmlRule(),
         InlineNoExternalReferencesRule(),
         InlineXbrlErrorSuspensionRiskRule(),
@@ -81,10 +105,18 @@ def _taxonomy_rules() -> list[Rule]:
     return [
         TaxonomyMetadataPresenceRule(),
         TaxonomyNamespacePrefixRule(),
+        TaxonomyNamespaceUriSchemeRule(),
+        TaxonomyElementPrefixDeclaredRule(),
+        TaxonomyElementDuplicateRule(),
         TaxonomyLabelRules(),
+        TaxonomyLabelRoleFormatRule(),
         TaxonomyRelationshipTargetExistsRule(),
+        TaxonomyRelationshipArcroleRule(),
+        TaxonomyRelationshipNoSelfLoopRule(),
         TaxonomyCalculationNoCycleRule(),
+        TaxonomyCalculationWeightRule(),
         TaxonomyCustomConceptRelationshipRule(),
+        TaxonomyCustomConceptPrefixRule(),
     ]
 
 
