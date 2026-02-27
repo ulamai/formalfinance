@@ -24,7 +24,19 @@ class ValidationResult:
 
     @property
     def status(self) -> str:
-        return "risk" if self.error_count > 0 else "clean"
+        if self.error_count > 0:
+            return "risk"
+        if self.warning_count > 0:
+            return "review"
+        return "clean"
+
+    @property
+    def risk_score(self) -> int:
+        if self.error_count > 0:
+            return min(100, self.error_count * 25 + self.warning_count * 5)
+        if self.warning_count > 0:
+            return min(40, self.warning_count * 8)
+        return 0
 
     def as_report(self, profile: str) -> dict:
         return {
@@ -36,6 +48,7 @@ class ValidationResult:
                 "rules_executed": len(self.executed_rules),
                 "error_count": self.error_count,
                 "warning_count": self.warning_count,
+                "risk_score": self.risk_score,
             },
             "executed_rules": self.executed_rules,
             "findings": [asdict(f) for f in self.findings],

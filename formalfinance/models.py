@@ -43,6 +43,7 @@ class Fact:
     unit: str | None = None
     decimals: int | str | None = None
     dimensions: dict[str, str] = field(default_factory=dict)
+    source: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, obj: dict[str, Any], index: int) -> "Fact":
@@ -54,6 +55,7 @@ class Fact:
             unit=obj.get("unit"),
             decimals=obj.get("decimals"),
             dimensions=dict(obj.get("dimensions", {}) or {}),
+            source=dict(obj.get("source", {}) or {}),
         )
 
     def numeric_value(self) -> float | None:
@@ -106,9 +108,8 @@ class Filing:
         )
 
     def canonical_object(self) -> dict[str, Any]:
-        contexts = [
-            {
-                "id": c.id,
+        contexts = {
+            c.id: {
                 "period_type": c.period_type,
                 "instant": c.instant,
                 "start_date": c.start_date,
@@ -116,7 +117,7 @@ class Filing:
                 "dimensions": dict(sorted(c.dimensions.items())),
             }
             for c in sorted(self.contexts.values(), key=lambda x: x.id)
-        ]
+        }
         facts = [
             {
                 "id": f.id,
@@ -126,6 +127,7 @@ class Filing:
                 "decimals": f.decimals,
                 "value": f.value,
                 "dimensions": dict(sorted(f.dimensions.items())),
+                "source": dict(sorted(f.source.items())),
             }
             for f in sorted(self.facts, key=lambda x: x.id)
         ]

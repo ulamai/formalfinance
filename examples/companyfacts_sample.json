@@ -1,0 +1,143 @@
+{
+  "cik": 123456,
+  "entityName": "Example Co",
+  "taxonomy": "us-gaap-2025",
+  "facts": {
+    "dei": {
+      "EntityRegistrantName": {
+        "label": "Entity Registrant Name",
+        "units": {
+          "pure": [
+            {
+              "val": "Example Co",
+              "end": "2025-12-31",
+              "accn": "0000123456-26-000001",
+              "form": "10-K",
+              "filed": "2026-02-20",
+              "fy": 2025,
+              "fp": "FY"
+            }
+          ]
+        }
+      },
+      "EntityCentralIndexKey": {
+        "label": "Entity CIK",
+        "units": {
+          "pure": [
+            {
+              "val": "0000123456",
+              "end": "2025-12-31",
+              "accn": "0000123456-26-000001",
+              "form": "10-K",
+              "filed": "2026-02-20",
+              "fy": 2025,
+              "fp": "FY"
+            }
+          ]
+        }
+      },
+      "DocumentType": {
+        "label": "Document Type",
+        "units": {
+          "pure": [
+            {
+              "val": "10-K",
+              "end": "2025-12-31",
+              "accn": "0000123456-26-000001",
+              "form": "10-K",
+              "filed": "2026-02-20",
+              "fy": 2025,
+              "fp": "FY"
+            }
+          ]
+        }
+      }
+    },
+    "us-gaap": {
+      "Assets": {
+        "label": "Assets",
+        "units": {
+          "USD": [
+            {
+              "val": 1000,
+              "end": "2025-12-31",
+              "accn": "0000123456-26-000001",
+              "form": "10-K",
+              "filed": "2026-02-20",
+              "fy": 2025,
+              "fp": "FY",
+              "dec": 0,
+              "frame": "CY2025Q4I"
+            },
+            {
+              "val": 900,
+              "end": "2024-12-31",
+              "accn": "0000123456-25-000001",
+              "form": "10-K",
+              "filed": "2025-02-18",
+              "fy": 2024,
+              "fp": "FY",
+              "dec": 0,
+              "frame": "CY2024Q4I"
+            }
+          ]
+        }
+      },
+      "Liabilities": {
+        "label": "Liabilities",
+        "units": {
+          "USD": [
+            {
+              "val": 600,
+              "end": "2025-12-31",
+              "accn": "0000123456-26-000001",
+              "form": "10-K",
+              "filed": "2026-02-20",
+              "fy": 2025,
+              "fp": "FY",
+              "dec": 0,
+              "frame": "CY2025Q4I"
+            }
+          ]
+        }
+      },
+      "StockholdersEquity": {
+        "label": "Stockholders Equity",
+        "units": {
+          "USD": [
+            {
+              "val": 400,
+              "end": "2025-12-31",
+              "accn": "0000123456-26-000001",
+              "form": "10-K",
+              "filed": "2026-02-20",
+              "fy": 2025,
+              "fp": "FY",
+              "dec": 0,
+              "frame": "CY2025Q4I"
+            }
+          ]
+        }
+      },
+      "Revenues": {
+        "label": "Revenues",
+        "units": {
+          "USD": [
+            {
+              "val": 300,
+              "start": "2025-01-01",
+              "end": "2025-12-31",
+              "accn": "0000123456-26-000001",
+              "form": "10-K",
+              "filed": "2026-02-20",
+              "fy": 2025,
+              "fp": "FY",
+              "dec": 0,
+              "frame": "CY2025"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

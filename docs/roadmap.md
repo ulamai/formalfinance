@@ -1,20 +1,20 @@
 # FormalFinance Roadmap
 
-## Phase 0 (this repo now)
+## Phase 0 (completed)
 
 - Normalized filing schema for contexts/facts/dimensions
 - Deterministic rule engine
 - Pre-submission risk report and clean certificate output
 - JSONL traces for replayable evidence packs
 
-## Phase 1: EDGAR/iXBRL pre-flight
+## Phase 1 (current): EDGAR/iXBRL pre-flight foundation
 
-- Inline XBRL structural checks against EDGAR-oriented constraints
-- HTML/iXBRL attachment gatekeeping rules
-- Custom taxonomy namespace/prefix/label/relationship checks
-- Submission suspension risk scoring
+- SEC companyfacts fetch + normalization to canonical filing schema
+- Structural preflight checks (context/date semantics, QName shape, unit/duplicate consistency)
+- Accounting checks (balance-sheet equation, period-type heuristics)
+- Evidence-pack generation (report, trace, summary, manifest, clean certificate)
 
-## Phase 2: Proof-carrying conformance
+## Phase 2: EDGAR rulebook and proof-carrying conformance
 
 - Lean rulebook for a scoped subset of EDGAR/XBRL constraints
 - Proof object export from checker and replay verification
