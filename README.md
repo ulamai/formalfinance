@@ -60,7 +60,7 @@ python3 -m formalfinance.cli pilot-readiness
 ```bash
 # 1) Fetch (requires SEC-compliant User-Agent)
 python3 -m formalfinance.cli fetch-companyfacts 320193 \
-  --user-agent "FormalFinance/0.1.1 contact@example.com" \
+  --user-agent "FormalFinance/0.1.2 contact@example.com" \
   --output /tmp/apple.companyfacts.json
 
 # 2) Normalize to FormalFinance canonical filing
@@ -86,7 +86,7 @@ python3 -m formalfinance.cli discover-recent-filings \
   --max-filings 100 \
   --cik-limit 250 \
   --filed-on-or-after 2025-10-01 \
-  --user-agent "FormalFinance/0.1.1 contact@example.com" \
+  --user-agent "FormalFinance/0.1.2 contact@example.com" \
   --output /tmp/formalfinance.pilot.filings.json
 ```
 
@@ -196,11 +196,11 @@ Service endpoints:
 ### Docker
 
 ```bash
-docker build -t formalfinance:0.1.1 .
+docker build -t formalfinance:0.1.2 .
 docker run --rm -p 8080:8080 \
   -e FORMALFINANCE_API_KEYS="dev-key-1" \
   -v "$PWD/.formalfinance-data:/data" \
-  formalfinance:0.1.1
+  formalfinance:0.1.2
 ```
 
 ## Canonical filing JSON shape
