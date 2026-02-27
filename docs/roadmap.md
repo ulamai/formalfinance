@@ -18,6 +18,8 @@
 - Accounting checks (balance-sheet equation, period-type heuristics)
 - Evidence-pack generation (report, trace, summary, manifest, clean certificate)
 - Baseline discrepancy comparison metrics for validator agreement analysis
+- HTTP API service with API-key auth and run-history persistence for hosted deployments
+- Rulebook metadata generation for governance and customer audit mapping
 
 ## Phase 2: EDGAR rulebook and proof-carrying conformance
 

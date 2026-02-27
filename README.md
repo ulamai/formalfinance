@@ -21,6 +21,10 @@ It mirrors the UlamAI pattern for finance reporting:
   - readiness checker for sample/rule targets
   - recent SEC filing discovery for 50–100 filing pilot batches
   - baseline discrepancy comparison metrics
+- Product service tooling:
+  - authenticated HTTP API server
+  - SQLite run history for operations/audit logs
+  - rulebook metadata endpoint for governance mapping
 - Rule classes covering:
   - iXBRL primary/attachment gating checks
   - iXBRL submission suspension risk detection from XBRL errors
@@ -115,6 +119,51 @@ Or:
   "errors": [{ "id": "RULE-123" }],
   "warnings": [{ "id": "RULE-456" }]
 }
+```
+
+## Run As A Service
+
+```bash
+# API keys can be set in env or passed via --api-keys
+export FORMALFINANCE_API_KEYS="dev-key-1"
+python3 -m formalfinance.cli serve --host 127.0.0.1 --port 8080 --db-path /tmp/formalfinance.runs.sqlite3
+```
+
+Example API calls:
+
+```bash
+curl -s http://127.0.0.1:8080/v1/healthz
+
+curl -s -H "X-API-Key: dev-key-1" http://127.0.0.1:8080/v1/profiles
+
+curl -s -X POST \
+  -H "X-API-Key: dev-key-1" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:8080/v1/validate \
+  -d @<(jq -n --argfile filing examples/filing_clean.json '{profile:"ixbrl-gating", filing:$filing, tenant_id:"demo"}')
+
+curl -s -H "X-API-Key: dev-key-1" "http://127.0.0.1:8080/v1/runs?limit=20&tenant_id=demo"
+```
+
+Service endpoints:
+
+- `GET /v1/healthz`
+- `GET /v1/profiles`
+- `GET /v1/rulebook?profile=ixbrl-gating|fsd-consistency|companyfacts-consistency|all`
+- `GET /v1/runs?limit=100&tenant_id=...`
+- `POST /v1/validate`
+- `POST /v1/certify`
+- `POST /v1/compare-baseline`
+- `POST /v1/pilot-readiness`
+
+### Docker
+
+```bash
+docker build -t formalfinance:0.1.1 .
+docker run --rm -p 8080:8080 \
+  -e FORMALFINANCE_API_KEYS="dev-key-1" \
+  -v "$PWD/.formalfinance-data:/data" \
+  formalfinance:0.1.1
 ```
 
 ## Canonical filing JSON shape

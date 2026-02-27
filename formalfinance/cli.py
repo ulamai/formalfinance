@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 
+from . import __version__
+from .api import ServiceConfig, run_server
 from .baseline_compare import compare_with_baseline, load_json_file
 from .certificate import issue_certificate
 from .evidence import (
@@ -16,6 +18,7 @@ from .evidence import (
 )
 from .pilot_readiness import build_readiness_report
 from .profiles import list_profiles, normalize_profile_name
+from .rulebook import build_global_rulebook, build_rulebook
 from .sec_discovery import discover_recent_filings
 from .sec_ingest import companyfacts_to_filing, fetch_companyfacts_json
 
@@ -158,6 +161,38 @@ def _cmd_pilot_readiness(args: argparse.Namespace) -> int:
     )
     _write_json(args.output, report)
     return 0 if report["summary"]["ready"] else 2
+
+
+def _cmd_rulebook(args: argparse.Namespace) -> int:
+    profile = (args.profile or "all").strip().lower()
+    payload = build_global_rulebook() if profile == "all" else build_rulebook(normalize_profile_name(profile))
+    _write_json(args.output, payload)
+    return 0
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    config = ServiceConfig.from_args(
+        host=args.host,
+        port=args.port,
+        db_path=args.db_path,
+        api_keys_raw=args.api_keys,
+    )
+    print(
+        json.dumps(
+            {
+                "service": "formalfinance",
+                "version": __version__,
+                "host": config.host,
+                "port": config.port,
+                "db_path": config.db_path,
+                "api_key_count": len(config.api_keys),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    run_server(config)
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -351,6 +386,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to save readiness JSON. Prints to stdout if omitted.",
     )
     readiness_parser.set_defaults(handler=_cmd_pilot_readiness)
+
+    rulebook_parser = subparsers.add_parser(
+        "rulebook",
+        help="Emit formal rulebook metadata for governance and audit mapping.",
+    )
+    rulebook_parser.add_argument(
+        "--profile",
+        default="all",
+        help="Profile name or `all`.",
+    )
+    rulebook_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save rulebook JSON. Prints to stdout if omitted.",
+    )
+    rulebook_parser.set_defaults(handler=_cmd_rulebook)
+
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Run FormalFinance HTTP API service with optional API-key auth and run logging.",
+    )
+    serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host.")
+    serve_parser.add_argument("--port", type=int, default=8080, help="Bind port.")
+    serve_parser.add_argument(
+        "--db-path",
+        default=".formalfinance/runs.sqlite3",
+        help="SQLite path for run history and service metadata.",
+    )
+    serve_parser.add_argument(
+        "--api-keys",
+        default=None,
+        help="Comma-separated API keys. If omitted, also reads FORMALFINANCE_API_KEYS.",
+    )
+    serve_parser.set_defaults(handler=_cmd_serve)
 
     return parser
 
