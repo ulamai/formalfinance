@@ -2,7 +2,7 @@
 
 FormalFinance is a proof-oriented validation layer for SEC filing workflows.
 
-It mirrors the UlamaI pattern for finance reporting:
+It mirrors the UlamAI pattern for finance reporting:
 
 - typed fact model for XBRL/iXBRL-like inputs
 - deterministic rule execution over filing facts
