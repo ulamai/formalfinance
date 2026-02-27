@@ -53,7 +53,7 @@ It mirrors the UlamAI pattern for finance reporting:
 ```bash
 python3 -m formalfinance.cli profiles
 python3 -m formalfinance.cli validate examples/filing_clean.json --profile ixbrl-gating
-python3 -m formalfinance.cli ingest-accession 0000320193 0000320193-26-000073 --user-agent "FormalFinance/0.1.2 contact@example.com" --output /tmp/apple.ingested.json
+python3 -m formalfinance.cli ingest-accession 0000320193 0000320193-26-000073 --user-agent "FormalFinance/0.1.3 contact@example.com" --output /tmp/apple.ingested.json
 python3 -m formalfinance.cli evidence-pack examples/filing_risky.json --profile fsd-consistency --output-dir /tmp/formalfinance-pack
 python3 -m formalfinance.cli pilot-readiness
 ```
@@ -63,7 +63,7 @@ python3 -m formalfinance.cli pilot-readiness
 ```bash
 # Build normalized filing directly from an SEC accession package
 python3 -m formalfinance.cli ingest-accession 0000320193 0000320193-26-000073 \
-  --user-agent "FormalFinance/0.1.2 contact@example.com" \
+  --user-agent "FormalFinance/0.1.3 contact@example.com" \
   --metadata /tmp/apple.ingest.meta.json \
   --output /tmp/apple.ingested.filing.json
 
@@ -76,7 +76,7 @@ python3 -m formalfinance.cli validate /tmp/apple.ingested.filing.json --profile 
 ```bash
 # 1) Fetch (requires SEC-compliant User-Agent)
 python3 -m formalfinance.cli fetch-companyfacts 320193 \
-  --user-agent "FormalFinance/0.1.2 contact@example.com" \
+  --user-agent "FormalFinance/0.1.3 contact@example.com" \
   --output /tmp/apple.companyfacts.json
 
 # 2) Normalize to FormalFinance canonical filing
@@ -102,7 +102,7 @@ python3 -m formalfinance.cli discover-recent-filings \
   --max-filings 100 \
   --cik-limit 250 \
   --filed-on-or-after 2025-10-01 \
-  --user-agent "FormalFinance/0.1.2 contact@example.com" \
+  --user-agent "FormalFinance/0.1.3 contact@example.com" \
   --output /tmp/formalfinance.pilot.filings.json
 ```
 
@@ -241,12 +241,12 @@ Service endpoints:
 ### Docker
 
 ```bash
-docker build -t formalfinance:0.1.2 .
+docker build -t formalfinance:0.1.3 .
 docker run --rm -p 8080:8080 \
   -e FORMALFINANCE_API_KEYS="dev-key-1" \
   -e FORMALFINANCE_RATE_LIMIT_PER_MINUTE="120" \
   -v "$PWD/.formalfinance-data:/data" \
-  formalfinance:0.1.2
+  formalfinance:0.1.3
 ```
 
 ## Triage Workflow
