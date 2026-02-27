@@ -45,6 +45,7 @@ It mirrors the UlamAI pattern for finance reporting:
   - `report.json`
   - `trace.jsonl`
   - `summary.md`
+  - `proof.json`
   - `manifest.json`
   - `certificate.json` when clean
 
@@ -53,8 +54,10 @@ It mirrors the UlamAI pattern for finance reporting:
 ```bash
 python3 -m formalfinance.cli profiles
 python3 -m formalfinance.cli validate examples/filing_clean.json --profile ixbrl-gating
-python3 -m formalfinance.cli ingest-accession 0000320193 0000320193-26-000073 --user-agent "FormalFinance/0.1.3 contact@example.com" --output /tmp/apple.ingested.json
+python3 -m formalfinance.cli ingest-accession 0000320193 0000320193-26-000073 --user-agent "FormalFinance/0.1.4 contact@example.com" --output /tmp/apple.ingested.json
 python3 -m formalfinance.cli evidence-pack examples/filing_risky.json --profile fsd-consistency --output-dir /tmp/formalfinance-pack
+python3 -m formalfinance.cli certify examples/filing_clean.json --profile fsd-consistency --signing-secret "dev-signing-secret"
+python3 -m formalfinance.cli replay-proof /tmp/formalfinance-pack/proof.json --report /tmp/formalfinance-pack/report.json
 python3 -m formalfinance.cli pilot-readiness
 ```
 
@@ -63,7 +66,7 @@ python3 -m formalfinance.cli pilot-readiness
 ```bash
 # Build normalized filing directly from an SEC accession package
 python3 -m formalfinance.cli ingest-accession 0000320193 0000320193-26-000073 \
-  --user-agent "FormalFinance/0.1.3 contact@example.com" \
+  --user-agent "FormalFinance/0.1.4 contact@example.com" \
   --metadata /tmp/apple.ingest.meta.json \
   --output /tmp/apple.ingested.filing.json
 
@@ -76,7 +79,7 @@ python3 -m formalfinance.cli validate /tmp/apple.ingested.filing.json --profile 
 ```bash
 # 1) Fetch (requires SEC-compliant User-Agent)
 python3 -m formalfinance.cli fetch-companyfacts 320193 \
-  --user-agent "FormalFinance/0.1.3 contact@example.com" \
+  --user-agent "FormalFinance/0.1.4 contact@example.com" \
   --output /tmp/apple.companyfacts.json
 
 # 2) Normalize to FormalFinance canonical filing
@@ -102,7 +105,7 @@ python3 -m formalfinance.cli discover-recent-filings \
   --max-filings 100 \
   --cik-limit 250 \
   --filed-on-or-after 2025-10-01 \
-  --user-agent "FormalFinance/0.1.3 contact@example.com" \
+  --user-agent "FormalFinance/0.1.4 contact@example.com" \
   --output /tmp/formalfinance.pilot.filings.json
 ```
 
@@ -168,6 +171,13 @@ export FORMALFINANCE_API_KEYS="dev-key-1"
 python3 -m formalfinance.cli serve --host 127.0.0.1 --port 8080 --db-path /tmp/formalfinance.runs.sqlite3
 ```
 
+Signed certificate defaults (optional):
+
+```bash
+export FORMALFINANCE_CERT_SIGNING_SECRET="dev-signing-secret"
+export FORMALFINANCE_CERT_SIGNING_KEY_ID="dev-key-v1"
+```
+
 Optional LLM advisory layer (default is off):
 
 ```bash
@@ -229,6 +239,7 @@ Service endpoints:
 - `POST /v1/ingest-accession`
 - `POST /v1/validate`
 - `POST /v1/certify`
+- `POST /v1/replay-proof`
 - `POST /v1/compare-baseline`
 - `POST /v1/pilot-readiness`
 
@@ -238,20 +249,25 @@ Service endpoints:
 - `status: ok` when LLM suggestions are generated
 - `status: error` when configured provider call fails
 
+`/v1/certify` can also return:
+
+- `certificate.signature` when certificate signing is configured
+- `proof` when request includes `"include_proof": true`
+
 ### Docker
 
 ```bash
-docker build -t formalfinance:0.1.3 .
+docker build -t formalfinance:0.1.4 .
 docker run --rm -p 8080:8080 \
   -e FORMALFINANCE_API_KEYS="dev-key-1" \
   -e FORMALFINANCE_RATE_LIMIT_PER_MINUTE="120" \
   -v "$PWD/.formalfinance-data:/data" \
-  formalfinance:0.1.3
+  formalfinance:0.1.4
 ```
 
 ## Triage Workflow
 
-`evidence-pack` now emits `triage.json` and `summary.html`.
+`evidence-pack` now emits `triage.json`, `summary.html`, and `proof.json`.
 
 ```bash
 # Initialize triage from any report
@@ -263,6 +279,41 @@ python3 -m formalfinance.cli triage-update /tmp/triage.json \
   --status in_progress \
   --assignee analyst@example.com \
   --note "Primary filing document replacement requested"
+```
+
+## Certificate Signing And Proof Replay
+
+```bash
+# Sign an existing certificate
+python3 -m formalfinance.cli sign-certificate /tmp/certificate.json \
+  --signing-secret "dev-signing-secret" \
+  --key-id dev-key-v1 \
+  --output /tmp/certificate.signed.json
+
+# Verify certificate signature and structure
+python3 -m formalfinance.cli verify-certificate /tmp/certificate.signed.json \
+  --signing-secret "dev-signing-secret" \
+  --require-signature \
+  --output /tmp/certificate.verify.json
+
+# Build proof directly from a filing
+python3 -m formalfinance.cli build-proof examples/filing_clean.json \
+  --profile fsd-consistency \
+  --certificate /tmp/proof.certificate.json \
+  --proof /tmp/proof.bundle.json
+
+# Replay proof deterministically
+python3 -m formalfinance.cli replay-proof /tmp/proof.bundle.json \
+  --report /tmp/formalfinance-pack/report.json \
+  --certificate /tmp/formalfinance-pack/certificate.json \
+  --signing-secret "dev-signing-secret" \
+  --require-certificate-signature \
+  --output /tmp/proof.replay.json
+
+# Optional Lean-backed arithmetic replay (requires `lean` on PATH)
+python3 -m formalfinance.cli replay-proof /tmp/proof.bundle.json \
+  --lean-check \
+  --lean-bin lean
 ```
 
 ## Operations Docs

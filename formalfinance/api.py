@@ -17,6 +17,7 @@ from .evidence import run_validation
 from .llm import LLMConfig, generate_advisory
 from .models import Filing
 from .pilot_readiness import build_readiness_report
+from .proof import build_proof_bundle, replay_proof_bundle
 from .profiles import list_profiles, normalize_profile_name
 from .rulebook import build_global_rulebook, build_rulebook
 from .sec_accession_ingest import ingest_accession_to_filing
@@ -57,6 +58,8 @@ class ServiceConfig:
     max_request_bytes: int = 2_000_000
     rate_limit_per_minute: int = 120
     allowlist_cidrs: tuple[str, ...] = ()
+    cert_signing_secret: str | None = None
+    cert_signing_key_id: str | None = None
 
     @classmethod
     def from_args(
@@ -76,6 +79,8 @@ class ServiceConfig:
         max_request_bytes: int | None = None,
         rate_limit_per_minute: int | None = None,
         allowlist_cidrs_raw: str | None = None,
+        cert_signing_secret: str | None = None,
+        cert_signing_key_id: str | None = None,
     ) -> "ServiceConfig":
         env_keys = _split_api_keys(os.getenv("FORMALFINANCE_API_KEYS"))
         arg_keys = _split_api_keys(api_keys_raw)
@@ -91,6 +96,16 @@ class ServiceConfig:
             max_findings=max(1, int(llm_max_findings or env_llm.max_findings)),
         )
         allowlist = _split_csv(allowlist_cidrs_raw) or _split_csv(os.getenv("FORMALFINANCE_ALLOWLIST_CIDRS"))
+        effective_signing_secret = (
+            cert_signing_secret
+            if cert_signing_secret is not None
+            else os.getenv("FORMALFINANCE_CERT_SIGNING_SECRET")
+        )
+        effective_signing_key_id = (
+            cert_signing_key_id
+            if cert_signing_key_id is not None
+            else os.getenv("FORMALFINANCE_CERT_SIGNING_KEY_ID")
+        )
         return cls(
             host=host,
             port=port,
@@ -106,6 +121,8 @@ class ServiceConfig:
                 _int_or_default(rate_limit_per_minute, _int_or_default(os.getenv("FORMALFINANCE_RATE_LIMIT_PER_MINUTE"), 120)),
             ),
             allowlist_cidrs=tuple(allowlist),
+            cert_signing_secret=(effective_signing_secret or "").strip() or None,
+            cert_signing_key_id=(effective_signing_key_id or "").strip() or None,
         )
 
 
@@ -173,6 +190,24 @@ class FormalFinanceService:
             request_llm = payload.get("llm")
         return self.config.llm_default.with_overrides(request_llm)
 
+    def _resolve_certificate_signing(self, payload: Any) -> tuple[str | None, str | None]:
+        secret = self.config.cert_signing_secret
+        key_id = self.config.cert_signing_key_id
+        if not isinstance(payload, dict):
+            return secret, key_id
+        request_signing = payload.get("certificate_signing")
+        if not isinstance(request_signing, dict):
+            return secret, key_id
+        if request_signing.get("enabled") is False:
+            return None, None
+        request_secret = str(request_signing.get("secret") or "").strip()
+        request_key_id = str(request_signing.get("key_id") or "").strip()
+        if request_secret:
+            secret = request_secret
+        if request_key_id:
+            key_id = request_key_id
+        return secret, key_id
+
     def handle(
         self,
         *,
@@ -203,6 +238,8 @@ class FormalFinanceService:
                 "timestamp": _utc_now(),
                 "llm_default_enabled": self.config.llm_default.enabled,
                 "llm_default_provider": self.config.llm_default.provider,
+                "certificate_signing_enabled": bool(self.config.cert_signing_secret),
+                "certificate_signing_key_id": self.config.cert_signing_key_id,
             }
 
         if not self._is_authorized(headers):
@@ -331,6 +368,48 @@ class FormalFinanceService:
             )
             return 200, {"run_id": run_id, "comparison": comparison}
 
+        if path == "/v1/replay-proof" and method == "POST":
+            if not isinstance(payload, dict):
+                return 400, {"error": "invalid_request", "message": "JSON object payload is required."}
+            proof = payload.get("proof")
+            if not isinstance(proof, dict):
+                return 400, {"error": "invalid_request", "message": "`proof` object is required."}
+            report = payload.get("report")
+            certificate = payload.get("certificate")
+            if report is not None and not isinstance(report, dict):
+                return 400, {"error": "invalid_request", "message": "`report` must be an object when provided."}
+            if certificate is not None and not isinstance(certificate, dict):
+                return 400, {"error": "invalid_request", "message": "`certificate` must be an object when provided."}
+            signing_secret = str(payload.get("signing_secret") or "").strip() or self.config.cert_signing_secret
+            lean = payload.get("lean")
+            lean_cfg = lean if isinstance(lean, dict) else {}
+            replay = replay_proof_bundle(
+                proof,
+                report=report,
+                certificate=certificate,
+                signing_secret=signing_secret,
+                require_certificate_signature=bool(payload.get("require_certificate_signature", False)),
+                run_lean=bool(lean_cfg.get("enabled", False)),
+                lean_bin=str(lean_cfg.get("bin") or "lean"),
+                lean_timeout_seconds=int(lean_cfg.get("timeout_seconds") or 20),
+            )
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            response_bytes = len(json.dumps(replay))
+            run_id = self._log_run(
+                endpoint=path,
+                tenant_id=tenant_id,
+                profile=str(proof.get("profile") or "") or None,
+                status="verified" if replay["verified"] else "failed",
+                error_count=0 if replay["verified"] else 1,
+                warning_count=0,
+                input_digest=str(proof.get("input_digest") or "") or None,
+                latency_ms=latency_ms,
+                request_bytes=request_bytes,
+                response_bytes=response_bytes,
+                metadata={"check_count": len(replay.get("checks", [])), "lean_enabled": bool(lean_cfg.get("enabled", False))},
+            )
+            return 200, {"run_id": run_id, "replay": replay}
+
         if path in {"/v1/validate", "/v1/certify"} and method == "POST":
             if not isinstance(payload, dict):
                 return 400, {"error": "invalid_request", "message": "JSON object payload is required."}
@@ -347,12 +426,29 @@ class FormalFinanceService:
             advisory = generate_advisory(report, llm_config)
             response: dict[str, Any] = {"report": report}
             response["advisory"] = advisory
+            include_proof = bool(payload.get("include_proof", False))
+            certificate_payload = None
             if path == "/v1/certify":
                 if report["status"] == "clean":
-                    response["certificate"] = issue_certificate(profile, result)
+                    signing_secret, key_id = self._resolve_certificate_signing(payload)
+                    certificate_payload = issue_certificate(
+                        profile,
+                        result,
+                        signing_secret=signing_secret,
+                        key_id=key_id,
+                    )
+                    response["certificate"] = certificate_payload
                 else:
                     response["certificate"] = None
                     response["certificate_status"] = "not_issued"
+            if include_proof:
+                response["proof"] = build_proof_bundle(
+                    filing=filing,
+                    profile=profile,
+                    report=report,
+                    result=result,
+                    certificate=certificate_payload,
+                )
             latency_ms = int((time.perf_counter() - started) * 1000)
             response_bytes = len(json.dumps(response))
             run_id = self._log_run(
@@ -371,6 +467,8 @@ class FormalFinanceService:
                     "llm_enabled": advisory.get("enabled"),
                     "llm_provider": advisory.get("provider"),
                     "llm_status": advisory.get("status"),
+                    "include_proof": include_proof,
+                    "certificate_signed": bool(isinstance(certificate_payload, dict) and certificate_payload.get("signature")),
                 },
             )
             return 200, {"run_id": run_id, **response}

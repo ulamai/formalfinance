@@ -9,7 +9,7 @@ from . import __version__
 from .api import ServiceConfig, run_server
 from .baseline_compare import compare_with_baseline, load_json_file
 from .benchmark import benchmark_from_manifest
-from .certificate import issue_certificate
+from .certificate import issue_certificate, sign_certificate, verify_certificate
 from .evidence import (
     build_evidence_pack,
     filing_from_path,
@@ -18,6 +18,7 @@ from .evidence import (
     selection_to_dict,
 )
 from .pilot_readiness import build_readiness_report
+from .proof import build_proof_bundle, replay_proof_bundle
 from .profiles import list_profiles, normalize_profile_name
 from .rulebook import build_global_rulebook, build_rulebook
 from .sec_accession_ingest import ingest_accession_to_filing
@@ -71,7 +72,14 @@ def _cmd_certify(args: argparse.Namespace) -> int:
     if report["status"] != "clean":
         print(f"Cannot issue certificate: validation status is '{report['status']}'.")
         return _exit_code_for_status(report["status"])
-    certificate = issue_certificate(normalize_profile_name(args.profile), result)
+    signing_secret = args.signing_secret or os.getenv("FORMALFINANCE_CERT_SIGNING_SECRET", "")
+    key_id = args.key_id or os.getenv("FORMALFINANCE_CERT_SIGNING_KEY_ID") or None
+    certificate = issue_certificate(
+        normalize_profile_name(args.profile),
+        result,
+        signing_secret=signing_secret or None,
+        key_id=key_id,
+    )
     _write_json(args.certificate, certificate)
     return 0
 
@@ -134,11 +142,15 @@ def _cmd_ingest_accession(args: argparse.Namespace) -> int:
 
 def _cmd_evidence_pack(args: argparse.Namespace) -> int:
     filing = filing_from_path(args.filing)
+    signing_secret = args.signing_secret or os.getenv("FORMALFINANCE_CERT_SIGNING_SECRET", "")
+    key_id = args.key_id or os.getenv("FORMALFINANCE_CERT_SIGNING_KEY_ID") or None
     result = build_evidence_pack(
         filing=filing,
         profile=args.profile,
         output_dir=args.output_dir,
         include_certificate=not args.no_certificate,
+        certificate_signing_secret=signing_secret or None,
+        certificate_key_id=key_id,
     )
     manifest = {
         "output_dir": str(result.output_dir),
@@ -149,10 +161,96 @@ def _cmd_evidence_pack(args: argparse.Namespace) -> int:
         "summary_html_path": str(result.html_summary_path),
         "triage_path": str(result.triage_path),
         "certificate_path": str(result.certificate_path) if result.certificate_path else None,
+        "proof_path": str(result.proof_path),
         "manifest_path": str(result.manifest_path),
     }
     print(json.dumps(manifest, indent=2, sort_keys=True))
     return _exit_code_for_status(result.status)
+
+
+def _cmd_sign_certificate(args: argparse.Namespace) -> int:
+    try:
+        certificate = _load_json(args.certificate)
+        signing_secret = args.signing_secret or os.getenv("FORMALFINANCE_CERT_SIGNING_SECRET", "")
+        if not signing_secret:
+            print("Certificate signing secret is required (pass --signing-secret or set FORMALFINANCE_CERT_SIGNING_SECRET).")
+            return 5
+        key_id = args.key_id or os.getenv("FORMALFINANCE_CERT_SIGNING_KEY_ID") or None
+        signed = sign_certificate(certificate, signing_secret=signing_secret, key_id=key_id)
+        _write_json(args.output, signed)
+        return 0
+    except Exception as exc:
+        print(f"Certificate signing failed: {exc}")
+        return 5
+
+
+def _cmd_verify_certificate(args: argparse.Namespace) -> int:
+    try:
+        certificate = _load_json(args.certificate)
+        signing_secret = args.signing_secret or os.getenv("FORMALFINANCE_CERT_SIGNING_SECRET", "")
+        verification = verify_certificate(
+            certificate,
+            signing_secret=signing_secret or None,
+            require_signature=bool(args.require_signature),
+        )
+        _write_json(args.output, verification)
+        return 0 if verification["verified"] else 6
+    except Exception as exc:
+        print(f"Certificate verification failed: {exc}")
+        return 5
+
+
+def _cmd_build_proof(args: argparse.Namespace) -> int:
+    filing = filing_from_path(args.filing)
+    normalized_profile = normalize_profile_name(args.profile)
+    trace = Path(args.trace) if args.trace else None
+    report, result = run_validation(filing, normalized_profile, trace_path=trace)
+    certificate_payload = None
+    if report["status"] == "clean" and not args.no_certificate:
+        signing_secret = args.signing_secret or os.getenv("FORMALFINANCE_CERT_SIGNING_SECRET", "")
+        key_id = args.key_id or os.getenv("FORMALFINANCE_CERT_SIGNING_KEY_ID") or None
+        certificate_payload = issue_certificate(
+            normalized_profile,
+            result,
+            signing_secret=signing_secret or None,
+            key_id=key_id,
+        )
+    proof = build_proof_bundle(
+        filing=filing,
+        profile=normalized_profile,
+        report=report,
+        result=result,
+        certificate=certificate_payload,
+    )
+    _write_json(args.proof, proof)
+    if args.report:
+        _write_json(args.report, report)
+    if args.certificate and certificate_payload is not None:
+        _write_json(args.certificate, certificate_payload)
+    return _exit_code_for_status(report["status"])
+
+
+def _cmd_replay_proof(args: argparse.Namespace) -> int:
+    try:
+        proof = _load_json(args.proof)
+        report = _load_json(args.report) if args.report else None
+        certificate = _load_json(args.certificate) if args.certificate else None
+        signing_secret = args.signing_secret or os.getenv("FORMALFINANCE_CERT_SIGNING_SECRET", "")
+        replay = replay_proof_bundle(
+            proof,
+            report=report,
+            certificate=certificate,
+            signing_secret=signing_secret or None,
+            require_certificate_signature=bool(args.require_certificate_signature),
+            run_lean=bool(args.lean_check),
+            lean_bin=args.lean_bin,
+            lean_timeout_seconds=args.lean_timeout_seconds,
+        )
+        _write_json(args.output, replay)
+        return 0 if replay["verified"] else 6
+    except Exception as exc:
+        print(f"Proof replay failed: {exc}")
+        return 5
 
 
 def _cmd_discover_filings(args: argparse.Namespace) -> int:
@@ -255,6 +353,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         max_request_bytes=args.max_request_bytes,
         rate_limit_per_minute=args.rate_limit_per_minute,
         allowlist_cidrs_raw=args.allowlist_cidrs,
+        cert_signing_secret=args.cert_signing_secret,
+        cert_signing_key_id=args.cert_signing_key_id,
     )
     print(
         json.dumps(
@@ -271,6 +371,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                 "max_request_bytes": config.max_request_bytes,
                 "rate_limit_per_minute": config.rate_limit_per_minute,
                 "allowlist_cidrs": list(config.allowlist_cidrs),
+                "certificate_signing_enabled": bool(config.cert_signing_secret),
+                "certificate_signing_key_id": config.cert_signing_key_id,
             },
             indent=2,
             sort_keys=True,
@@ -332,6 +434,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--report",
         help="Optional path to save full validation report.",
         default=None,
+    )
+    certify_parser.add_argument(
+        "--signing-secret",
+        default=None,
+        help="Optional HMAC secret for certificate signing (or FORMALFINANCE_CERT_SIGNING_SECRET).",
+    )
+    certify_parser.add_argument(
+        "--key-id",
+        default=None,
+        help="Optional certificate signing key identifier.",
     )
     certify_parser.set_defaults(handler=_cmd_certify)
 
@@ -443,7 +555,136 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not emit certificate even when status is clean.",
     )
+    evidence_parser.add_argument(
+        "--signing-secret",
+        default=None,
+        help="Optional HMAC secret for evidence-pack certificate signing (or FORMALFINANCE_CERT_SIGNING_SECRET).",
+    )
+    evidence_parser.add_argument(
+        "--key-id",
+        default=None,
+        help="Optional certificate signing key identifier for evidence-pack output.",
+    )
     evidence_parser.set_defaults(handler=_cmd_evidence_pack)
+
+    sign_cert_parser = subparsers.add_parser(
+        "sign-certificate",
+        help="Attach an HS256 signature to a certificate JSON payload.",
+    )
+    sign_cert_parser.add_argument("certificate", help="Path to certificate JSON file.")
+    sign_cert_parser.add_argument(
+        "--signing-secret",
+        default=None,
+        help="HMAC secret (or FORMALFINANCE_CERT_SIGNING_SECRET).",
+    )
+    sign_cert_parser.add_argument("--key-id", default=None, help="Optional key identifier.")
+    sign_cert_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save signed certificate JSON. Prints to stdout if omitted.",
+    )
+    sign_cert_parser.set_defaults(handler=_cmd_sign_certificate)
+
+    verify_cert_parser = subparsers.add_parser(
+        "verify-certificate",
+        help="Verify certificate structure and optional HS256 signature.",
+    )
+    verify_cert_parser.add_argument("certificate", help="Path to certificate JSON file.")
+    verify_cert_parser.add_argument(
+        "--signing-secret",
+        default=None,
+        help="HMAC secret for signature verification (or FORMALFINANCE_CERT_SIGNING_SECRET).",
+    )
+    verify_cert_parser.add_argument(
+        "--require-signature",
+        action="store_true",
+        help="Fail verification when certificate has no signature block.",
+    )
+    verify_cert_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save verification JSON. Prints to stdout if omitted.",
+    )
+    verify_cert_parser.set_defaults(handler=_cmd_verify_certificate)
+
+    build_proof_parser = subparsers.add_parser(
+        "build-proof",
+        help="Run validation and emit a replayable proof bundle.",
+    )
+    build_proof_parser.add_argument("filing", help="Path to normalized filing JSON.")
+    build_proof_parser.add_argument(
+        "--profile",
+        default="ixbrl-gating",
+        help="Validation profile to execute for proof generation.",
+    )
+    build_proof_parser.add_argument("--trace", help="Optional trace path for validation run.", default=None)
+    build_proof_parser.add_argument(
+        "--proof",
+        default=None,
+        help="Path to proof JSON output. Prints to stdout if omitted.",
+    )
+    build_proof_parser.add_argument(
+        "--report",
+        default=None,
+        help="Optional path to save report JSON.",
+    )
+    build_proof_parser.add_argument(
+        "--certificate",
+        default=None,
+        help="Optional path to save certificate JSON when status is clean.",
+    )
+    build_proof_parser.add_argument(
+        "--no-certificate",
+        action="store_true",
+        help="Do not emit certificate payload during proof generation.",
+    )
+    build_proof_parser.add_argument(
+        "--signing-secret",
+        default=None,
+        help="Optional HMAC secret for certificate signing (or FORMALFINANCE_CERT_SIGNING_SECRET).",
+    )
+    build_proof_parser.add_argument("--key-id", default=None, help="Optional certificate signing key identifier.")
+    build_proof_parser.set_defaults(handler=_cmd_build_proof)
+
+    replay_proof_parser = subparsers.add_parser(
+        "replay-proof",
+        help="Replay a proof bundle against report/certificate artifacts.",
+    )
+    replay_proof_parser.add_argument("proof", help="Path to proof JSON file.")
+    replay_proof_parser.add_argument("--report", default=None, help="Optional report JSON path.")
+    replay_proof_parser.add_argument("--certificate", default=None, help="Optional certificate JSON path.")
+    replay_proof_parser.add_argument(
+        "--signing-secret",
+        default=None,
+        help="Optional HMAC secret for certificate signature verification.",
+    )
+    replay_proof_parser.add_argument(
+        "--require-certificate-signature",
+        action="store_true",
+        help="Fail replay when certificate signature is missing or invalid.",
+    )
+    replay_proof_parser.add_argument(
+        "--lean-check",
+        action="store_true",
+        help="Run optional Lean checker for arithmetic claims in the proof bundle.",
+    )
+    replay_proof_parser.add_argument(
+        "--lean-bin",
+        default="lean",
+        help="Lean executable path for --lean-check.",
+    )
+    replay_proof_parser.add_argument(
+        "--lean-timeout-seconds",
+        type=int,
+        default=20,
+        help="Timeout for Lean checker execution.",
+    )
+    replay_proof_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save replay result JSON. Prints to stdout if omitted.",
+    )
+    replay_proof_parser.set_defaults(handler=_cmd_replay_proof)
 
     discover_parser = subparsers.add_parser(
         "discover-recent-filings",
@@ -626,6 +867,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--allowlist-cidrs",
         default=None,
         help="Comma-separated CIDR allowlist for client IPs.",
+    )
+    serve_parser.add_argument(
+        "--cert-signing-secret",
+        default=None,
+        help="Default HS256 secret for signing certificates in /v1/certify responses.",
+    )
+    serve_parser.add_argument(
+        "--cert-signing-key-id",
+        default=None,
+        help="Default key identifier for signed certificates.",
     )
     serve_parser.add_argument(
         "--llm-enabled",

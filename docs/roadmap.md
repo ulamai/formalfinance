@@ -25,12 +25,15 @@
 - Optional LLM advisory integration (default off) with provider connectors (Ollama/OpenAI-compatible)
 - Remediation workflow artifacts (`triage.json`, HTML summary, triage update commands)
 - Operational endpoints and tooling (`/v1/metrics`, `/v1/migrations`, `db-migrate`, `db-status`)
+- Signed certificates (HS256) with verification workflow
+- Replayable proof bundles (`proof.json`) and deterministic proof replay endpoint/CLI
+- Optional Lean-backed arithmetic claim replay (`replay-proof --lean-check`)
 
-## Phase 2: EDGAR rulebook and proof-carrying conformance
+## Phase 2: EDGAR rulebook and stronger proof-carrying conformance
 
 - Lean rulebook for a scoped subset of EDGAR/XBRL constraints
-- Proof object export from checker and replay verification
-- Rule-to-fact provenance chain for each pass/fail outcome
+- Expand Lean replay from arithmetic claims to broader EDGAR/XBRL rule classes
+- Rule-to-fact provenance minimization for each pass/fail outcome
 
 ## Phase 3: Dataset verification and issuer integrations
 

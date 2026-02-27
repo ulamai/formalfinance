@@ -14,6 +14,8 @@ formalfinance serve \
   --port 8080 \
   --db-path /data/runs.sqlite3 \
   --api-keys "$FORMALFINANCE_API_KEYS" \
+  --cert-signing-secret "$FORMALFINANCE_CERT_SIGNING_SECRET" \
+  --cert-signing-key-id "$FORMALFINANCE_CERT_SIGNING_KEY_ID" \
   --max-request-bytes 2000000 \
   --rate-limit-per-minute 120 \
   --allowlist-cidrs "10.0.0.0/8,192.168.0.0/16"
@@ -57,6 +59,7 @@ Minimum alerts:
 ## Security Checklist
 
 - Set `FORMALFINANCE_API_KEYS` (or reverse proxy auth).
+- Set `FORMALFINANCE_CERT_SIGNING_SECRET` when signed certificates are required.
 - Restrict ingress with `--allowlist-cidrs`.
 - Configure `--max-request-bytes` and `--rate-limit-per-minute`.
 - Keep LLM disabled by default unless needed.

@@ -9,6 +9,7 @@ import json
 from .certificate import issue_certificate
 from .engine import ValidationEngine, ValidationResult
 from .models import Filing
+from .proof import build_proof_bundle
 from .profiles import get_profile, normalize_profile_name
 from .tracing import TraceLogger
 from .triage import init_triage_from_report, write_triage
@@ -24,6 +25,7 @@ class EvidencePackResult:
     html_summary_path: Path
     triage_path: Path
     certificate_path: Path | None
+    proof_path: Path
     manifest_path: Path
 
 
@@ -152,6 +154,8 @@ def build_evidence_pack(
     profile: str,
     output_dir: str | Path,
     include_certificate: bool = True,
+    certificate_signing_secret: str | None = None,
+    certificate_key_id: str | None = None,
 ) -> EvidencePackResult:
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -162,6 +166,7 @@ def build_evidence_pack(
     summary_path = out_dir / "summary.md"
     html_summary_path = out_dir / "summary.html"
     triage_path = out_dir / "triage.json"
+    proof_path = out_dir / "proof.json"
     certificate_path: Path | None = out_dir / "certificate.json" if include_certificate else None
     manifest_path = out_dir / "manifest.json"
 
@@ -172,10 +177,25 @@ def build_evidence_pack(
     write_triage(triage_path, init_triage_from_report(report))
 
     emitted_certificate_path: Path | None = None
+    certificate_payload: dict | None = None
     if include_certificate and report["status"] == "clean":
-        certificate = issue_certificate(normalized_profile, result)
-        _write_json(certificate_path, certificate)
+        certificate_payload = issue_certificate(
+            normalized_profile,
+            result,
+            signing_secret=certificate_signing_secret,
+            key_id=certificate_key_id,
+        )
+        _write_json(certificate_path, certificate_payload)
         emitted_certificate_path = certificate_path
+
+    proof_payload = build_proof_bundle(
+        filing=filing,
+        profile=normalized_profile,
+        report=report,
+        result=result,
+        certificate=certificate_payload,
+    )
+    _write_json(proof_path, proof_payload)
 
     manifest = {
         "schema_version": "formalfinance.evidence_pack.v0",
@@ -189,6 +209,7 @@ def build_evidence_pack(
             "summary_html": html_summary_path.name,
             "triage": triage_path.name,
             "certificate": emitted_certificate_path.name if emitted_certificate_path else None,
+            "proof": proof_path.name,
         },
         "summary": report["summary"],
     }
@@ -203,6 +224,7 @@ def build_evidence_pack(
         html_summary_path=html_summary_path,
         triage_path=triage_path,
         certificate_path=emitted_certificate_path,
+        proof_path=proof_path,
         manifest_path=manifest_path,
     )
 

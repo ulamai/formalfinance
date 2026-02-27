@@ -5,10 +5,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from formalfinance.certificate import issue_certificate
+from formalfinance.certificate import issue_certificate, verify_certificate
 from formalfinance.evidence import build_evidence_pack
 from formalfinance.engine import ValidationEngine
 from formalfinance.models import Filing
+from formalfinance.proof import build_proof_bundle, replay_proof_bundle
 from formalfinance.profiles import get_profile
 from formalfinance.sec_ingest import companyfacts_to_filing
 
@@ -54,6 +55,29 @@ class EngineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             issue_certificate("ixbrl-gating", risky)
 
+    def test_signed_certificate_verification(self) -> None:
+        clean = ValidationEngine(get_profile("ixbrl-gating")).validate(_load_example("filing_clean.json"))
+        signed = issue_certificate(
+            "ixbrl-gating",
+            clean,
+            signing_secret="test-secret",
+            key_id="test-key",
+        )
+        self.assertIn("signature", signed)
+        verified = verify_certificate(
+            signed,
+            signing_secret="test-secret",
+            require_signature=True,
+        )
+        self.assertTrue(verified["verified"])
+
+        wrong_secret = verify_certificate(
+            signed,
+            signing_secret="wrong-secret",
+            require_signature=True,
+        )
+        self.assertFalse(wrong_secret["verified"])
+
     def test_warning_only_status_is_review(self) -> None:
         with open(ROOT / "examples" / "filing_clean.json", "r", encoding="utf-8") as fp:
             raw = json.load(fp)
@@ -93,6 +117,7 @@ class EngineTests(unittest.TestCase):
             self.assertTrue(clean_result.report_path.exists())
             self.assertTrue(clean_result.trace_path.exists())
             self.assertTrue(clean_result.summary_path.exists())
+            self.assertTrue(clean_result.proof_path.exists())
             self.assertIsNotNone(clean_result.certificate_path)
             self.assertTrue(clean_result.certificate_path.exists())
 
@@ -106,7 +131,30 @@ class EngineTests(unittest.TestCase):
             self.assertTrue(risky_result.report_path.exists())
             self.assertTrue(risky_result.trace_path.exists())
             self.assertTrue(risky_result.summary_path.exists())
+            self.assertTrue(risky_result.proof_path.exists())
             self.assertIsNone(risky_result.certificate_path)
+
+    def test_proof_bundle_replay(self) -> None:
+        filing = _load_example("filing_clean.json")
+        result = ValidationEngine(get_profile("fsd-consistency")).validate(filing)
+        report = result.as_report("fsd-consistency")
+        certificate = issue_certificate("fsd-consistency", result, signing_secret="proof-secret")
+        proof = build_proof_bundle(
+            filing=filing,
+            profile="fsd-consistency",
+            report=report,
+            result=result,
+            certificate=certificate,
+        )
+        replay = replay_proof_bundle(
+            proof,
+            report=report,
+            certificate=certificate,
+            signing_secret="proof-secret",
+            require_certificate_signature=True,
+            run_lean=False,
+        )
+        self.assertTrue(replay["verified"])
 
 
 if __name__ == "__main__":

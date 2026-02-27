@@ -25,6 +25,8 @@ class ServiceApiTests(unittest.TestCase):
             api_keys=("test-key",),
             max_request_bytes=20000,
             rate_limit_per_minute=240,
+            cert_signing_secret="api-secret",
+            cert_signing_key_id="svc-key",
         )
         cls._server = create_server(config)
         cls._host, cls._port = cls._server.server_address
@@ -107,6 +109,46 @@ class ServiceApiTests(unittest.TestCase):
         self.assertIsNone(payload["certificate"])
         self.assertEqual(payload["certificate_status"], "not_issued")
         self.assertEqual(payload["advisory"]["status"], "disabled")
+
+    def test_certify_clean_returns_signed_certificate(self) -> None:
+        headers = {"X-API-Key": "test-key"}
+        filing = self._load_filing("filing_clean.json")
+        status, payload = self._request(
+            "POST",
+            "/v1/certify",
+            payload={"profile": "ixbrl-gating", "filing": filing},
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["report"]["status"], "clean")
+        self.assertIn("certificate", payload)
+        self.assertIn("signature", payload["certificate"])
+
+    def test_replay_proof_endpoint(self) -> None:
+        headers = {"X-API-Key": "test-key"}
+        filing = self._load_filing("filing_clean.json")
+        certify_status, certify_payload = self._request(
+            "POST",
+            "/v1/certify",
+            payload={"profile": "fsd-consistency", "filing": filing, "include_proof": True},
+            headers=headers,
+        )
+        self.assertEqual(certify_status, 200)
+        self.assertIn("proof", certify_payload)
+        replay_status, replay_payload = self._request(
+            "POST",
+            "/v1/replay-proof",
+            payload={
+                "proof": certify_payload["proof"],
+                "report": certify_payload["report"],
+                "certificate": certify_payload["certificate"],
+                "signing_secret": "api-secret",
+                "require_certificate_signature": True,
+            },
+            headers=headers,
+        )
+        self.assertEqual(replay_status, 200)
+        self.assertTrue(replay_payload["replay"]["verified"])
 
     def test_validate_with_mock_llm(self) -> None:
         headers = {"X-API-Key": "test-key"}
