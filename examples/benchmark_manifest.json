@@ -1,0 +1,10 @@
+{
+  "cases": [
+    {
+      "id": "clean-fixture",
+      "filing": "examples/filing_clean.json",
+      "baseline_report": "examples/baseline_clean.json",
+      "profile": "ixbrl-gating"
+    }
+  ]
+}

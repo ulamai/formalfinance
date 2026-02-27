@@ -27,6 +27,9 @@ class EngineTests(unittest.TestCase):
         result = ValidationEngine(get_profile("ixbrl-gating")).validate(filing)
         self.assertEqual(result.status, "clean")
         self.assertEqual(result.error_count, 0)
+        report = result.as_report("ixbrl-gating")
+        self.assertIn("rule_provenance", report)
+        self.assertIn("ixbrl.context_reference_exists", report["rule_provenance"])
 
     def test_risky_fsd_profile(self) -> None:
         filing = _load_example("filing_risky.json")
@@ -38,6 +41,9 @@ class EngineTests(unittest.TestCase):
         self.assertIn("ixbrl.submission_suspension_risk", rule_ids)
         self.assertIn("taxonomy.calculation_no_cycles", rule_ids)
         self.assertIn("taxonomy.relationship_target_exists", rule_ids)
+        report = result.as_report("fsd-consistency")
+        self.assertTrue(all("finding_id" in row for row in report["findings"]))
+        self.assertTrue(all("reference" in row for row in report["findings"]))
 
     def test_certificate_issued_only_when_clean(self) -> None:
         clean = ValidationEngine(get_profile("ixbrl-gating")).validate(_load_example("filing_clean.json"))

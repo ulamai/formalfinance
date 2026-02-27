@@ -11,6 +11,7 @@ class RulebookEntry:
     rule_id: str
     category: str
     reference_family: str
+    reference: dict[str, Any]
     description: str
     evidence_fields: list[str]
 
@@ -19,6 +20,7 @@ class RulebookEntry:
             "rule_id": self.rule_id,
             "category": self.category,
             "reference_family": self.reference_family,
+            "reference": self.reference,
             "description": self.description,
             "evidence_fields": self.evidence_fields,
         }
@@ -56,6 +58,62 @@ def _category_for_rule(rule_id: str) -> tuple[str, str]:
     )
 
 
+REFERENCE_BY_PREFIX: dict[str, dict[str, Any]] = {
+    "ixbrl.": {
+        "document": "SEC EDGAR Filer Manual (Volume II)",
+        "section": "Chapter 6.5.20 (Inline XBRL submission validations)",
+        "version": "EDGAR Release 26.x (as reflected in current public guidance)",
+        "as_of_date": "2026-02-27",
+        "url": "https://www.sec.gov/info/edgar/specifications",
+    },
+    "taxonomy.": {
+        "document": "SEC EDGAR Filer Manual (Volume II)",
+        "section": "Chapter 6.5.26-6.5.28 (custom taxonomy and linkbase validations)",
+        "version": "EDGAR Release 26.x (as reflected in current public guidance)",
+        "as_of_date": "2026-02-27",
+        "url": "https://www.sec.gov/info/edgar/specifications",
+    },
+    "xbrl.": {
+        "document": "XBRL 2.1 Specification + SEC EDGAR XBRL acceptance constraints",
+        "section": "XBRL 2.1 Sections 4-5 (facts, contexts, units, dimensions)",
+        "version": "XBRL 2.1 Recommendation",
+        "as_of_date": "2026-02-27",
+        "url": "https://www.xbrl.org/specification/xbrl-2.1/",
+    },
+    "dei.": {
+        "document": "SEC DEI taxonomy filing metadata requirements",
+        "section": "Entity and document identifier consistency checks",
+        "version": "Current SEC DEI taxonomy cycle",
+        "as_of_date": "2026-02-27",
+        "url": "https://www.sec.gov/structureddata",
+    },
+    "acct.": {
+        "document": "FormalFinance accounting consistency policy",
+        "section": "Mechanical arithmetic and period-type sanity checks",
+        "version": "formalfinance.policy.v0",
+        "as_of_date": "2026-02-27",
+        "url": "https://github.com/ulamai/formalfinance",
+    },
+}
+
+
+def reference_for_rule(rule_id: str) -> dict[str, Any]:
+    for prefix, reference in REFERENCE_BY_PREFIX.items():
+        if rule_id.startswith(prefix):
+            return dict(reference)
+    return {
+        "document": "FormalFinance internal validation policy",
+        "section": "General checks",
+        "version": "formalfinance.policy.v0",
+        "as_of_date": "2026-02-27",
+        "url": "https://github.com/ulamai/formalfinance",
+    }
+
+
+def rule_provenance_map(rule_ids: list[str]) -> dict[str, dict[str, Any]]:
+    return {rule_id: reference_for_rule(rule_id) for rule_id in sorted(set(rule_ids))}
+
+
 def _evidence_fields_for_rule(rule_id: str) -> list[str]:
     fields = ["rule_id", "severity", "message"]
     if rule_id.startswith(("xbrl.", "acct.", "ixbrl.")):
@@ -75,6 +133,7 @@ def build_rulebook(profile: str = "ixbrl-gating") -> dict[str, Any]:
                 rule_id=rule.rule_id,
                 category=category,
                 reference_family=reference_family,
+                reference=reference_for_rule(rule.rule_id),
                 description=rule.description,
                 evidence_fields=_evidence_fields_for_rule(rule.rule_id),
             )
@@ -98,6 +157,7 @@ def build_global_rulebook() -> dict[str, Any]:
                 rule_id=rule.rule_id,
                 category=category,
                 reference_family=reference_family,
+                reference=reference_for_rule(rule.rule_id),
                 description=rule.description,
                 evidence_fields=_evidence_fields_for_rule(rule.rule_id),
             )

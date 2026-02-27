@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Iterable
 
 from .models import Filing
+from .rulebook import reference_for_rule, rule_provenance_map
 from .rules import Finding, Rule
 from .tracing import NoopTraceLogger
 
@@ -39,6 +40,13 @@ class ValidationResult:
         return 0
 
     def as_report(self, profile: str) -> dict:
+        findings: list[dict] = []
+        for idx, finding in enumerate(self.findings, start=1):
+            payload = asdict(finding)
+            payload["finding_id"] = f"{finding.rule_id}:{idx:04d}"
+            payload["reference"] = reference_for_rule(finding.rule_id)
+            findings.append(payload)
+
         return {
             "schema_version": "formalfinance.report.v0",
             "profile": profile,
@@ -51,7 +59,8 @@ class ValidationResult:
                 "risk_score": self.risk_score,
             },
             "executed_rules": self.executed_rules,
-            "findings": [asdict(f) for f in self.findings],
+            "rule_provenance": rule_provenance_map(self.executed_rules),
+            "findings": findings,
         }
 
 

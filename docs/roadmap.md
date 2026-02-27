@@ -10,6 +10,7 @@
 ## Phase 1 (current): EDGAR/iXBRL pre-flight foundation
 
 - SEC companyfacts fetch + normalization to canonical filing schema
+- Accession-based raw filing package ingestion (`cik + accession -> ixbrl + taxonomy + facts`)
 - SEC recent-filing discovery tooling for controlled 50–100 filing pilots
 - Structural preflight checks (context/date semantics, QName shape, unit/duplicate consistency)
 - Inline XBRL document/attachment gating checks (HTML extension, active content, external references)
@@ -19,8 +20,11 @@
 - Evidence-pack generation (report, trace, summary, manifest, clean certificate)
 - Baseline discrepancy comparison metrics for validator agreement analysis
 - HTTP API service with API-key auth and run-history persistence for hosted deployments
+- Service hardening controls (rate limits, request-size guardrails, CIDR allowlist)
 - Rulebook metadata generation for governance and customer audit mapping
 - Optional LLM advisory integration (default off) with provider connectors (Ollama/OpenAI-compatible)
+- Remediation workflow artifacts (`triage.json`, HTML summary, triage update commands)
+- Operational endpoints and tooling (`/v1/metrics`, `/v1/migrations`, `db-migrate`, `db-status`)
 
 ## Phase 2: EDGAR rulebook and proof-carrying conformance
 

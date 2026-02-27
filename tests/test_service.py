@@ -18,7 +18,14 @@ class ServiceApiTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._tmpdir = tempfile.TemporaryDirectory()
         db_path = str(Path(cls._tmpdir.name) / "runs.sqlite3")
-        config = ServiceConfig(host="127.0.0.1", port=0, db_path=db_path, api_keys=("test-key",))
+        config = ServiceConfig(
+            host="127.0.0.1",
+            port=0,
+            db_path=db_path,
+            api_keys=("test-key",),
+            max_request_bytes=20000,
+            rate_limit_per_minute=240,
+        )
         cls._server = create_server(config)
         cls._host, cls._port = cls._server.server_address
         cls._thread = threading.Thread(target=cls._server.serve_forever, daemon=True)
@@ -141,6 +148,30 @@ class ServiceApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertTrue(payload["comparison"]["metrics"]["meets_95pct_target"])
+
+    def test_metrics_endpoint(self) -> None:
+        headers = {"X-API-Key": "test-key"}
+        status, payload = self._request("GET", "/v1/metrics", headers=headers)
+        self.assertEqual(status, 200)
+        self.assertIn("total_runs", payload)
+        self.assertIn("latency_ms", payload)
+
+    def test_migrations_endpoint(self) -> None:
+        headers = {"X-API-Key": "test-key"}
+        status, payload = self._request("GET", "/v1/migrations", headers=headers)
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(payload["latest_version"], 1)
+
+    def test_request_size_limit(self) -> None:
+        headers = {"X-API-Key": "test-key"}
+        large_payload = {
+            "profile": "ixbrl-gating",
+            "filing": {"contexts": {}, "facts": []},
+            "tenant_id": "x" * 25000,
+        }
+        status, payload = self._request("POST", "/v1/validate", payload=large_payload, headers=headers)
+        self.assertEqual(status, 413)
+        self.assertEqual(payload["error"], "invalid_json")
 
 
 if __name__ == "__main__":

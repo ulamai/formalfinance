@@ -8,6 +8,7 @@ from pathlib import Path
 from . import __version__
 from .api import ServiceConfig, run_server
 from .baseline_compare import compare_with_baseline, load_json_file
+from .benchmark import benchmark_from_manifest
 from .certificate import issue_certificate
 from .evidence import (
     build_evidence_pack,
@@ -19,8 +20,11 @@ from .evidence import (
 from .pilot_readiness import build_readiness_report
 from .profiles import list_profiles, normalize_profile_name
 from .rulebook import build_global_rulebook, build_rulebook
+from .sec_accession_ingest import ingest_accession_to_filing
 from .sec_discovery import discover_recent_filings
 from .sec_ingest import companyfacts_to_filing, fetch_companyfacts_json
+from .store import RunStore
+from .triage import TriageUpdate, apply_triage_update, init_triage_from_report, load_triage, write_triage
 
 
 def _load_json(path: str) -> dict:
@@ -107,6 +111,27 @@ def _cmd_normalize_companyfacts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ingest_accession(args: argparse.Namespace) -> int:
+    user_agent = args.user_agent or os.getenv("FORMALFINANCE_USER_AGENT", "")
+    try:
+        filing, metadata = ingest_accession_to_filing(
+            cik=args.cik,
+            accession=args.accession,
+            user_agent=user_agent,
+            timeout_seconds=args.timeout,
+            include_companyfacts=not args.no_companyfacts,
+            max_scan_docs=args.max_scan_docs,
+            max_doc_scan_bytes=args.max_doc_scan_bytes,
+        )
+        _write_json(args.output, filing_to_dict(filing))
+        if args.metadata:
+            _write_json(args.metadata, metadata.as_dict())
+        return 0
+    except Exception as exc:
+        print(f"Ingestion failed: {exc}")
+        return 5
+
+
 def _cmd_evidence_pack(args: argparse.Namespace) -> int:
     filing = filing_from_path(args.filing)
     result = build_evidence_pack(
@@ -121,6 +146,8 @@ def _cmd_evidence_pack(args: argparse.Namespace) -> int:
         "report_path": str(result.report_path),
         "trace_path": str(result.trace_path),
         "summary_path": str(result.summary_path),
+        "summary_html_path": str(result.html_summary_path),
+        "triage_path": str(result.triage_path),
         "certificate_path": str(result.certificate_path) if result.certificate_path else None,
         "manifest_path": str(result.manifest_path),
     }
@@ -151,6 +178,17 @@ def _cmd_compare_baseline(args: argparse.Namespace) -> int:
     return 0 if comparison["metrics"]["meets_95pct_target"] else 3
 
 
+def _cmd_benchmark_baseline(args: argparse.Namespace) -> int:
+    try:
+        benchmark = benchmark_from_manifest(args.manifest)
+    except Exception as exc:
+        print(f"Benchmark failed: {exc}")
+        return 5
+    _write_json(args.output, benchmark)
+    meets_rate = float(benchmark["summary"]["meets_95pct_target_rate"])
+    return 0 if meets_rate >= float(args.pass_rate) else 4
+
+
 def _cmd_pilot_readiness(args: argparse.Namespace) -> int:
     report = build_readiness_report(
         min_rules=args.min_rules,
@@ -170,6 +208,37 @@ def _cmd_rulebook(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_triage_init(args: argparse.Namespace) -> int:
+    try:
+        report = _load_json(args.report)
+        triage = init_triage_from_report(report, owner=args.owner)
+        _write_json(args.output, triage)
+        return 0
+    except Exception as exc:
+        print(f"Triage init failed: {exc}")
+        return 5
+
+
+def _cmd_triage_update(args: argparse.Namespace) -> int:
+    try:
+        triage = load_triage(args.triage)
+        updated = apply_triage_update(
+            triage,
+            TriageUpdate(
+                finding_id=args.finding_id,
+                status=args.status,
+                assignee=args.assignee,
+                note=args.note,
+            ),
+        )
+        output = args.output or args.triage
+        write_triage(output, updated)
+        return 0
+    except Exception as exc:
+        print(f"Triage update failed: {exc}")
+        return 5
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     config = ServiceConfig.from_args(
         host=args.host,
@@ -183,6 +252,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         llm_api_key=args.llm_api_key,
         llm_timeout_seconds=args.llm_timeout_seconds,
         llm_max_findings=args.llm_max_findings,
+        max_request_bytes=args.max_request_bytes,
+        rate_limit_per_minute=args.rate_limit_per_minute,
+        allowlist_cidrs_raw=args.allowlist_cidrs,
     )
     print(
         json.dumps(
@@ -196,12 +268,29 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                 "llm_default_enabled": config.llm_default.enabled,
                 "llm_default_provider": config.llm_default.provider,
                 "llm_default_model": config.llm_default.model,
+                "max_request_bytes": config.max_request_bytes,
+                "rate_limit_per_minute": config.rate_limit_per_minute,
+                "allowlist_cidrs": list(config.allowlist_cidrs),
             },
             indent=2,
             sort_keys=True,
         )
     )
     run_server(config)
+    return 0
+
+
+def _cmd_db_migrate(args: argparse.Namespace) -> int:
+    store = RunStore(args.db_path)
+    status = store.migration_status()
+    _write_json(args.output, status)
+    return 0
+
+
+def _cmd_db_status(args: argparse.Namespace) -> int:
+    store = RunStore(args.db_path)
+    status = store.migration_status()
+    _write_json(args.output, status)
     return 0
 
 
@@ -293,6 +382,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     normalize_parser.set_defaults(handler=_cmd_normalize_companyfacts)
 
+    ingest_parser = subparsers.add_parser(
+        "ingest-accession",
+        help="Build a normalized filing from SEC accession-level raw package metadata + companyfacts.",
+    )
+    ingest_parser.add_argument("cik", help="CIK (numeric or zero-padded string).")
+    ingest_parser.add_argument("accession", help="Accession number (0000000000-00-000000 or digits).")
+    ingest_parser.add_argument(
+        "--user-agent",
+        default=None,
+        help="SEC-compliant User-Agent header (or set FORMALFINANCE_USER_AGENT).",
+    )
+    ingest_parser.add_argument("--timeout", type=int, default=30, help="HTTP timeout in seconds.")
+    ingest_parser.add_argument(
+        "--no-companyfacts",
+        action="store_true",
+        help="Do not enrich with companyfacts; emit structural filing metadata only.",
+    )
+    ingest_parser.add_argument(
+        "--max-scan-docs",
+        type=int,
+        default=25,
+        help="Maximum number of raw filing documents to fetch for metadata scanning.",
+    )
+    ingest_parser.add_argument(
+        "--max-doc-scan-bytes",
+        type=int,
+        default=1000000,
+        help="Max bytes per scanned document.",
+    )
+    ingest_parser.add_argument(
+        "--metadata",
+        default=None,
+        help="Optional path to save ingestion metadata JSON.",
+    )
+    ingest_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save normalized filing JSON. Prints to stdout if omitted.",
+    )
+    ingest_parser.set_defaults(handler=_cmd_ingest_accession)
+
     evidence_parser = subparsers.add_parser(
         "evidence-pack",
         help="Run validation and write an audit-ready evidence bundle to a directory.",
@@ -367,6 +497,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     baseline_parser.set_defaults(handler=_cmd_compare_baseline)
 
+    benchmark_parser = subparsers.add_parser(
+        "benchmark-baseline",
+        help="Run baseline parity benchmark across a manifest of filing test cases.",
+    )
+    benchmark_parser.add_argument("manifest", help="Path to benchmark manifest JSON.")
+    benchmark_parser.add_argument(
+        "--pass-rate",
+        type=float,
+        default=0.95,
+        help="Minimum rate of cases that must meet 95%% target to return success.",
+    )
+    benchmark_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save benchmark result JSON. Prints to stdout if omitted.",
+    )
+    benchmark_parser.set_defaults(handler=_cmd_benchmark_baseline)
+
     readiness_parser = subparsers.add_parser(
         "pilot-readiness",
         help="Check whether pilot prerequisites and scope controls are in place.",
@@ -413,6 +561,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rulebook_parser.set_defaults(handler=_cmd_rulebook)
 
+    triage_init_parser = subparsers.add_parser(
+        "triage-init",
+        help="Initialize triage workflow JSON from a FormalFinance report.",
+    )
+    triage_init_parser.add_argument("report", help="Path to FormalFinance report JSON.")
+    triage_init_parser.add_argument("--owner", default=None, help="Default owner for new triage issues.")
+    triage_init_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to triage JSON output. Prints to stdout if omitted.",
+    )
+    triage_init_parser.set_defaults(handler=_cmd_triage_init)
+
+    triage_update_parser = subparsers.add_parser(
+        "triage-update",
+        help="Update issue status/assignee/notes in a triage JSON file.",
+    )
+    triage_update_parser.add_argument("triage", help="Path to triage JSON file.")
+    triage_update_parser.add_argument("--finding-id", required=True, help="Finding ID to update.")
+    triage_update_parser.add_argument(
+        "--status",
+        default=None,
+        help="New status: open, in_progress, blocked, resolved, accepted_risk.",
+    )
+    triage_update_parser.add_argument("--assignee", default=None, help="Assignee name/email.")
+    triage_update_parser.add_argument("--note", default=None, help="Optional note appended to issue history.")
+    triage_update_parser.add_argument(
+        "--output",
+        default=None,
+        help="Optional output path; defaults to in-place update of the input file.",
+    )
+    triage_update_parser.set_defaults(handler=_cmd_triage_update)
+
     serve_parser = subparsers.add_parser(
         "serve",
         help="Run FormalFinance HTTP API service with optional API-key auth and run logging.",
@@ -428,6 +609,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--api-keys",
         default=None,
         help="Comma-separated API keys. If omitted, also reads FORMALFINANCE_API_KEYS.",
+    )
+    serve_parser.add_argument(
+        "--max-request-bytes",
+        type=int,
+        default=None,
+        help="Maximum accepted request body size in bytes.",
+    )
+    serve_parser.add_argument(
+        "--rate-limit-per-minute",
+        type=int,
+        default=None,
+        help="Rate limit per API key/IP per minute.",
+    )
+    serve_parser.add_argument(
+        "--allowlist-cidrs",
+        default=None,
+        help="Comma-separated CIDR allowlist for client IPs.",
     )
     serve_parser.add_argument(
         "--llm-enabled",
@@ -455,6 +653,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max findings to send to the LLM in advisory prompts.",
     )
     serve_parser.set_defaults(handler=_cmd_serve)
+
+    db_migrate_parser = subparsers.add_parser(
+        "db-migrate",
+        help="Apply/initialize SQLite schema migrations for FormalFinance service storage.",
+    )
+    db_migrate_parser.add_argument(
+        "--db-path",
+        default=".formalfinance/runs.sqlite3",
+        help="SQLite path for migrations.",
+    )
+    db_migrate_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save migration status JSON. Prints to stdout if omitted.",
+    )
+    db_migrate_parser.set_defaults(handler=_cmd_db_migrate)
+
+    db_status_parser = subparsers.add_parser(
+        "db-status",
+        help="Show applied SQLite schema migrations for FormalFinance service storage.",
+    )
+    db_status_parser.add_argument(
+        "--db-path",
+        default=".formalfinance/runs.sqlite3",
+        help="SQLite path for status query.",
+    )
+    db_status_parser.add_argument(
+        "--output",
+        default=None,
+        help="Path to save migration status JSON. Prints to stdout if omitted.",
+    )
+    db_status_parser.set_defaults(handler=_cmd_db_status)
 
     return parser
 

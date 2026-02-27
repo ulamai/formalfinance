@@ -25,6 +25,8 @@ It mirrors the UlamAI pattern for finance reporting:
   - authenticated HTTP API server
   - SQLite run history for operations/audit logs
   - rulebook metadata endpoint for governance mapping
+  - request-size, rate-limit, and CIDR allowlist controls
+  - migration + metrics endpoints for operations
 - Rule classes covering:
   - iXBRL primary/attachment gating checks
   - iXBRL submission suspension risk detection from XBRL errors
@@ -51,8 +53,22 @@ It mirrors the UlamAI pattern for finance reporting:
 ```bash
 python3 -m formalfinance.cli profiles
 python3 -m formalfinance.cli validate examples/filing_clean.json --profile ixbrl-gating
+python3 -m formalfinance.cli ingest-accession 0000320193 0000320193-26-000073 --user-agent "FormalFinance/0.1.2 contact@example.com" --output /tmp/apple.ingested.json
 python3 -m formalfinance.cli evidence-pack examples/filing_risky.json --profile fsd-consistency --output-dir /tmp/formalfinance-pack
 python3 -m formalfinance.cli pilot-readiness
+```
+
+## Accession Ingestion Workflow
+
+```bash
+# Build normalized filing directly from an SEC accession package
+python3 -m formalfinance.cli ingest-accession 0000320193 0000320193-26-000073 \
+  --user-agent "FormalFinance/0.1.2 contact@example.com" \
+  --metadata /tmp/apple.ingest.meta.json \
+  --output /tmp/apple.ingested.filing.json
+
+# Validate immediately
+python3 -m formalfinance.cli validate /tmp/apple.ingested.filing.json --profile ixbrl-gating
 ```
 
 ## SEC companyfacts workflow
@@ -112,6 +128,29 @@ Accepted baseline JSON shapes:
 }
 ```
 
+Run baseline parity package over a manifest:
+
+```bash
+python3 -m formalfinance.cli benchmark-baseline examples/benchmark_manifest.json \
+  --pass-rate 0.95 \
+  --output /tmp/formalfinance.benchmark.result.json
+```
+
+Manifest shape:
+
+```json
+{
+  "cases": [
+    {
+      "id": "clean-fixture",
+      "filing": "examples/filing_clean.json",
+      "baseline_report": "examples/baseline_clean.json",
+      "profile": "ixbrl-gating"
+    }
+  ]
+}
+```
+
 Or:
 
 ```json
@@ -143,6 +182,9 @@ export FORMALFINANCE_LLM_BASE_URL=http://127.0.0.1:11434
 python3 -m formalfinance.cli serve \
   --host 127.0.0.1 --port 8080 \
   --api-keys dev-key-1 \
+  --max-request-bytes 2000000 \
+  --rate-limit-per-minute 120 \
+  --allowlist-cidrs "127.0.0.1/32" \
   --llm-enabled \
   --llm-provider ollama \
   --llm-model llama3.1:8b-instruct-q4_K_M \
@@ -182,6 +224,9 @@ Service endpoints:
 - `GET /v1/profiles`
 - `GET /v1/rulebook?profile=ixbrl-gating|fsd-consistency|companyfacts-consistency|all`
 - `GET /v1/runs?limit=100&tenant_id=...`
+- `GET /v1/metrics`
+- `GET /v1/migrations`
+- `POST /v1/ingest-accession`
 - `POST /v1/validate`
 - `POST /v1/certify`
 - `POST /v1/compare-baseline`
@@ -199,8 +244,38 @@ Service endpoints:
 docker build -t formalfinance:0.1.2 .
 docker run --rm -p 8080:8080 \
   -e FORMALFINANCE_API_KEYS="dev-key-1" \
+  -e FORMALFINANCE_RATE_LIMIT_PER_MINUTE="120" \
   -v "$PWD/.formalfinance-data:/data" \
   formalfinance:0.1.2
+```
+
+## Triage Workflow
+
+`evidence-pack` now emits `triage.json` and `summary.html`.
+
+```bash
+# Initialize triage from any report
+python3 -m formalfinance.cli triage-init /tmp/formalfinance.report.json --owner analyst@example.com --output /tmp/triage.json
+
+# Update one finding
+python3 -m formalfinance.cli triage-update /tmp/triage.json \
+  --finding-id ixbrl.primary_document_constraints:0001 \
+  --status in_progress \
+  --assignee analyst@example.com \
+  --note "Primary filing document replacement requested"
+```
+
+## Operations Docs
+
+- API reference: [`docs/api/v1.md`](/Users/blackfrog/Projects/formal-finance/docs/api/v1.md)
+- Operations/runbook: [`docs/operations.md`](/Users/blackfrog/Projects/formal-finance/docs/operations.md)
+- Service expectations: [`docs/sla.md`](/Users/blackfrog/Projects/formal-finance/docs/sla.md)
+
+DB migration commands:
+
+```bash
+python3 -m formalfinance.cli db-migrate --db-path /tmp/formalfinance.runs.sqlite3
+python3 -m formalfinance.cli db-status --db-path /tmp/formalfinance.runs.sqlite3
 ```
 
 ## Canonical filing JSON shape

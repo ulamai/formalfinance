@@ -19,6 +19,8 @@ from .models import Filing
 from .pilot_readiness import build_readiness_report
 from .profiles import list_profiles, normalize_profile_name
 from .rulebook import build_global_rulebook, build_rulebook
+from .sec_accession_ingest import ingest_accession_to_filing
+from .security import CIDRAllowlist, InMemoryRateLimiter
 from .store import RunStore
 
 
@@ -32,6 +34,19 @@ def _split_api_keys(raw: str | None) -> set[str]:
     return {token.strip() for token in raw.split(",") if token.strip()}
 
 
+def _int_or_default(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _split_csv(raw: str | None) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
 @dataclass(frozen=True)
 class ServiceConfig:
     host: str = "127.0.0.1"
@@ -39,6 +54,9 @@ class ServiceConfig:
     db_path: str = ".formalfinance/runs.sqlite3"
     api_keys: tuple[str, ...] = ()
     llm_default: LLMConfig = LLMConfig()
+    max_request_bytes: int = 2_000_000
+    rate_limit_per_minute: int = 120
+    allowlist_cidrs: tuple[str, ...] = ()
 
     @classmethod
     def from_args(
@@ -55,6 +73,9 @@ class ServiceConfig:
         llm_api_key: str | None = None,
         llm_timeout_seconds: int | None = None,
         llm_max_findings: int | None = None,
+        max_request_bytes: int | None = None,
+        rate_limit_per_minute: int | None = None,
+        allowlist_cidrs_raw: str | None = None,
     ) -> "ServiceConfig":
         env_keys = _split_api_keys(os.getenv("FORMALFINANCE_API_KEYS"))
         arg_keys = _split_api_keys(api_keys_raw)
@@ -69,12 +90,22 @@ class ServiceConfig:
             timeout_seconds=max(3, int(llm_timeout_seconds or env_llm.timeout_seconds)),
             max_findings=max(1, int(llm_max_findings or env_llm.max_findings)),
         )
+        allowlist = _split_csv(allowlist_cidrs_raw) or _split_csv(os.getenv("FORMALFINANCE_ALLOWLIST_CIDRS"))
         return cls(
             host=host,
             port=port,
             db_path=db_path,
             api_keys=tuple(merged),
             llm_default=merged_llm,
+            max_request_bytes=max(
+                1024,
+                _int_or_default(max_request_bytes, _int_or_default(os.getenv("FORMALFINANCE_MAX_REQUEST_BYTES"), 2_000_000)),
+            ),
+            rate_limit_per_minute=max(
+                1,
+                _int_or_default(rate_limit_per_minute, _int_or_default(os.getenv("FORMALFINANCE_RATE_LIMIT_PER_MINUTE"), 120)),
+            ),
+            allowlist_cidrs=tuple(allowlist),
         )
 
 
@@ -82,6 +113,8 @@ class FormalFinanceService:
     def __init__(self, config: ServiceConfig) -> None:
         self.config = config
         self.store = RunStore(config.db_path)
+        self.rate_limiter = InMemoryRateLimiter(rate_per_minute=config.rate_limit_per_minute)
+        self.allowlist = CIDRAllowlist(networks=config.allowlist_cidrs)
 
     def _is_authorized(self, headers: dict[str, str]) -> bool:
         if not self.config.api_keys:
@@ -95,6 +128,15 @@ class FormalFinanceService:
             if token in self.config.api_keys:
                 return True
         return False
+
+    def _rate_limit_key(self, headers: dict[str, str], remote_addr: str) -> str:
+        x_api_key = (headers.get("x-api-key") or "").strip()
+        if x_api_key:
+            return f"key:{x_api_key}"
+        auth = (headers.get("authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            return f"bearer:{auth.split(' ', 1)[1].strip()}"
+        return f"ip:{remote_addr}"
 
     def _log_run(
         self,
@@ -140,11 +182,18 @@ class FormalFinanceService:
         headers: dict[str, str],
         payload: Any,
         request_bytes: int,
+        remote_addr: str,
     ) -> tuple[int, dict[str, Any]]:
         started = time.perf_counter()
         tenant_id = None
         if isinstance(payload, dict):
             tenant_id = str(payload.get("tenant_id") or "").strip() or None
+
+        if not self.allowlist.allows(remote_addr):
+            return 403, {"error": "forbidden", "message": "Client IP is not in allowlist."}
+
+        if not self.rate_limiter.allow(self._rate_limit_key(headers, remote_addr)):
+            return 429, {"error": "rate_limited", "message": "Rate limit exceeded."}
 
         if path == "/v1/healthz" and method == "GET":
             return 200, {
@@ -184,6 +233,52 @@ class FormalFinanceService:
             requested_tenant = (query.get("tenant_id", [""])[0] or "").strip() or None
             records = self.store.list_runs(limit=limit, tenant_id=requested_tenant)
             return 200, {"runs": [record.as_dict() for record in records]}
+
+        if path == "/v1/metrics" and method == "GET":
+            return 200, self.store.metrics()
+
+        if path == "/v1/migrations" and method == "GET":
+            return 200, self.store.migration_status()
+
+        if path == "/v1/ingest-accession" and method == "POST":
+            if not isinstance(payload, dict):
+                return 400, {"error": "invalid_request", "message": "JSON object payload is required."}
+            cik = payload.get("cik")
+            accession = payload.get("accession")
+            if not cik or not accession:
+                return 400, {"error": "invalid_request", "message": "`cik` and `accession` are required."}
+            user_agent = str(payload.get("user_agent") or os.getenv("FORMALFINANCE_USER_AGENT") or "").strip()
+            if not user_agent:
+                return 400, {"error": "invalid_request", "message": "SEC user_agent is required."}
+            filing, ingest_meta = ingest_accession_to_filing(
+                cik=str(cik),
+                accession=str(accession),
+                user_agent=user_agent,
+                timeout_seconds=int(payload.get("timeout_seconds") or 30),
+                include_companyfacts=bool(payload.get("include_companyfacts", True)),
+                max_scan_docs=int(payload.get("max_scan_docs") or 25),
+                max_doc_scan_bytes=int(payload.get("max_doc_scan_bytes") or 1_000_000),
+            )
+            response = {
+                "filing": filing.canonical_object(),
+                "ingestion_metadata": ingest_meta.as_dict(),
+            }
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            response_bytes = len(json.dumps(response))
+            run_id = self._log_run(
+                endpoint=path,
+                tenant_id=tenant_id,
+                profile=None,
+                status="ok",
+                error_count=0,
+                warning_count=0,
+                input_digest=filing.input_digest(),
+                latency_ms=latency_ms,
+                request_bytes=request_bytes,
+                response_bytes=response_bytes,
+                metadata={"cik": filing.cik, "accession": filing.accession},
+            )
+            return 200, {"run_id": run_id, **response}
 
         if path == "/v1/pilot-readiness" and method in {"GET", "POST"}:
             params = payload if isinstance(payload, dict) else {}
@@ -291,10 +386,12 @@ class _Handler(BaseHTTPRequestHandler):
     def _headers_dict(self) -> dict[str, str]:
         return {key.lower(): value for key, value in self.headers.items()}
 
-    def _read_json_body(self) -> tuple[Any, int, str | None]:
+    def _read_json_body(self, max_bytes: int) -> tuple[Any, int, str | None]:
         raw_len = int(self.headers.get("Content-Length", "0") or "0")
         if raw_len <= 0:
             return None, 0, None
+        if raw_len > max_bytes:
+            return None, 0, f"Request body too large ({raw_len} > {max_bytes})."
         raw = self.rfile.read(raw_len)
         if not raw:
             return None, 0, None
@@ -318,10 +415,13 @@ class _Handler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
 
         if method in {"POST", "PUT", "PATCH"}:
-            payload, request_bytes, decode_error = self._read_json_body()
+            payload, request_bytes, decode_error = self._read_json_body(
+                max_bytes=int(self.service.config.max_request_bytes)
+            )
             if decode_error:
+                status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE if decode_error.startswith("Request body too large") else HTTPStatus.BAD_REQUEST
                 self._send_json(
-                    HTTPStatus.BAD_REQUEST,
+                    status,
                     {"error": "invalid_json", "message": decode_error},
                 )
                 return
@@ -337,6 +437,7 @@ class _Handler(BaseHTTPRequestHandler):
                 headers=self._headers_dict(),
                 payload=payload,
                 request_bytes=request_bytes,
+                remote_addr=self.client_address[0],
             )
             self._send_json(status, response)
         except Exception as exc:
