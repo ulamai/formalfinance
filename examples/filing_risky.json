@@ -4,6 +4,100 @@
   "entity": "Example Risky Corp",
   "period_end": "2025-12-31",
   "taxonomy": "us-gaap-2025",
+  "ixbrl": {
+    "primary_document": {
+      "filename": "example-2025-10k.xml",
+      "is_inline_xbrl": false,
+      "contains_ix_header": false,
+      "xbrl_errors": [
+        "IXBRL-1001"
+      ],
+      "disallowed_html_tags": [
+        "script"
+      ],
+      "external_references": [
+        "https://cdn.example.com/widget.js"
+      ]
+    },
+    "attachments": [
+      {
+        "filename": "notes-inline.xml",
+        "is_inline_xbrl": true,
+        "xbrl_errors": [],
+        "disallowed_html_tags": [],
+        "external_references": []
+      },
+      {
+        "filename": "notes-inline.xml",
+        "is_inline_xbrl": true,
+        "xbrl_errors": [
+          "IXBRL-1111"
+        ],
+        "disallowed_html_tags": [],
+        "external_references": []
+      }
+    ],
+    "disallowed_html_tags": [],
+    "external_references": []
+  },
+  "taxonomy_package": {
+    "namespaces": [
+      {
+        "prefix": "us-gaap",
+        "uri": "http://formalfinance.example/custom-us-gaap",
+        "is_standard": false
+      },
+      {
+        "prefix": "ff",
+        "uri": "http://formalfinance.example/taxonomy/2025",
+        "is_standard": false
+      }
+    ],
+    "elements": [
+      {
+        "concept": "us-gaap:Assets",
+        "is_custom": false
+      },
+      {
+        "concept": "us-gaap:Liabilities",
+        "is_custom": false
+      },
+      {
+        "concept": "us-gaap:StockholdersEquity",
+        "is_custom": false
+      },
+      {
+        "concept": "ff:BadCustomMetric",
+        "is_custom": true
+      }
+    ],
+    "labels": [
+      {
+        "concept": "ff:UnknownConcept",
+        "role": "http://www.xbrl.org/2003/role/label",
+        "text": ""
+      }
+    ],
+    "relationships": [
+      {
+        "arcrole": "http://www.xbrl.org/2003/arcrole/summation-item",
+        "from": "ff:BadCustomMetric",
+        "to": "us-gaap:Assets",
+        "weight": 1
+      },
+      {
+        "arcrole": "http://www.xbrl.org/2003/arcrole/summation-item",
+        "from": "us-gaap:Assets",
+        "to": "ff:BadCustomMetric",
+        "weight": 1
+      },
+      {
+        "arcrole": "http://www.xbrl.org/2003/arcrole/parent-child",
+        "from": "ff:BadCustomMetric",
+        "to": "ff:MissingTarget"
+      }
+    ]
+  },
   "contexts": {
     "c2025": {
       "period_type": "instant",

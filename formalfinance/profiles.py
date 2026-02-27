@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .rules_ixbrl import (
+    InlineAttachmentHtmlRule,
+    InlineMetadataPresenceRule,
+    InlineNoDisallowedHtmlRule,
+    InlineNoExternalReferencesRule,
+    InlinePrimaryDocumentRule,
+    InlineXbrlErrorSuspensionRiskRule,
+)
 from .rules import (
     BalanceSheetEquationRule,
     ConceptPeriodTypeHeuristicRule,
@@ -18,6 +26,14 @@ from .rules import (
     RequiredConceptsRule,
     Rule,
     UnitConsistencyByConceptRule,
+)
+from .rules_taxonomy import (
+    TaxonomyCalculationNoCycleRule,
+    TaxonomyCustomConceptRelationshipRule,
+    TaxonomyLabelRules,
+    TaxonomyMetadataPresenceRule,
+    TaxonomyNamespacePrefixRule,
+    TaxonomyRelationshipTargetExistsRule,
 )
 
 
@@ -50,9 +66,33 @@ def _core_structural_rules() -> list[Rule]:
     ]
 
 
+def _ixbrl_preflight_rules() -> list[Rule]:
+    return [
+        InlineMetadataPresenceRule(),
+        InlinePrimaryDocumentRule(),
+        InlineAttachmentHtmlRule(),
+        InlineNoDisallowedHtmlRule(),
+        InlineNoExternalReferencesRule(),
+        InlineXbrlErrorSuspensionRiskRule(),
+    ]
+
+
+def _taxonomy_rules() -> list[Rule]:
+    return [
+        TaxonomyMetadataPresenceRule(),
+        TaxonomyNamespacePrefixRule(),
+        TaxonomyLabelRules(),
+        TaxonomyRelationshipTargetExistsRule(),
+        TaxonomyCalculationNoCycleRule(),
+        TaxonomyCustomConceptRelationshipRule(),
+    ]
+
+
 def _ixbrl_gating_rules() -> list[Rule]:
     return [
         *_core_structural_rules(),
+        *_ixbrl_preflight_rules(),
+        *_taxonomy_rules(),
         RequiredConceptsRule(required_concepts=REQUIRED_DEI_CONCEPTS),
     ]
 
@@ -77,7 +117,7 @@ def _companyfacts_consistency_rules() -> list[Rule]:
 
 PROFILE_BUILDERS = {
     "ixbrl-gating": (
-        "EDGAR/iXBRL-style preflight gate on structural validity and required DEI concepts.",
+        "EDGAR/iXBRL-style preflight gate with inline attachment checks, taxonomy checks, and required DEI concepts.",
         _ixbrl_gating_rules,
     ),
     "fsd-consistency": (

@@ -4,6 +4,90 @@
   "entity": "Example Clean Corp",
   "period_end": "2025-12-31",
   "taxonomy": "us-gaap-2025",
+  "ixbrl": {
+    "primary_document": {
+      "filename": "example-2025-10k.htm",
+      "is_inline_xbrl": true,
+      "contains_ix_header": true,
+      "xbrl_errors": [],
+      "disallowed_html_tags": [],
+      "external_references": []
+    },
+    "attachments": [
+      {
+        "filename": "exhibit-21.htm",
+        "is_inline_xbrl": false,
+        "xbrl_errors": [],
+        "disallowed_html_tags": [],
+        "external_references": []
+      }
+    ],
+    "disallowed_html_tags": [],
+    "external_references": []
+  },
+  "taxonomy_package": {
+    "namespaces": [
+      {
+        "prefix": "us-gaap",
+        "uri": "http://fasb.org/us-gaap/2025-01-31",
+        "is_standard": true
+      },
+      {
+        "prefix": "dei",
+        "uri": "http://xbrl.sec.gov/dei/2025",
+        "is_standard": true
+      },
+      {
+        "prefix": "ff",
+        "uri": "http://formalfinance.example/taxonomy/2025",
+        "is_standard": false
+      }
+    ],
+    "elements": [
+      {
+        "concept": "us-gaap:Assets",
+        "is_custom": false
+      },
+      {
+        "concept": "us-gaap:Liabilities",
+        "is_custom": false
+      },
+      {
+        "concept": "us-gaap:StockholdersEquity",
+        "is_custom": false
+      },
+      {
+        "concept": "ff:AdjustedEbitda",
+        "is_custom": true
+      }
+    ],
+    "labels": [
+      {
+        "concept": "ff:AdjustedEbitda",
+        "role": "http://www.xbrl.org/2003/role/label",
+        "text": "Adjusted EBITDA"
+      }
+    ],
+    "relationships": [
+      {
+        "arcrole": "http://www.xbrl.org/2003/arcrole/parent-child",
+        "from": "us-gaap:Assets",
+        "to": "ff:AdjustedEbitda"
+      },
+      {
+        "arcrole": "http://www.xbrl.org/2003/arcrole/summation-item",
+        "from": "us-gaap:Assets",
+        "to": "us-gaap:Liabilities",
+        "weight": 1
+      },
+      {
+        "arcrole": "http://www.xbrl.org/2003/arcrole/summation-item",
+        "from": "us-gaap:Assets",
+        "to": "us-gaap:StockholdersEquity",
+        "weight": 1
+      }
+    ]
+  },
   "contexts": {
     "c2025": {
       "period_type": "instant",

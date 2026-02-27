@@ -14,10 +14,16 @@ It mirrors the UlamaI pattern for finance reporting:
 - Canonical filing schema (`contexts` + `facts` + source provenance)
 - SEC `companyfacts` ingestion and normalization
 - Three validation profiles:
-  - `ixbrl-gating`: structural + DEI gating checks
-  - `fsd-consistency`: adds accounting consistency rules
+  - `ixbrl-gating`: structural + iXBRL preflight + taxonomy + DEI checks
+  - `fsd-consistency`: adds accounting consistency rules on top of full preflight
   - `companyfacts-consistency`: tuned for SEC companyfacts-derived filings
 - Rule classes covering:
+  - iXBRL primary/attachment gating checks
+  - iXBRL submission suspension risk detection from XBRL errors
+  - disallowed HTML and external reference checks
+  - taxonomy namespace/prefix consistency checks
+  - taxonomy label and relationship integrity checks
+  - taxonomy calculation-cycle detection
   - context/date semantics
   - concept QName validation
   - numeric unit/decimals/finiteness checks
@@ -45,7 +51,7 @@ python3 -m formalfinance.cli evidence-pack examples/filing_risky.json --profile 
 ```bash
 # 1) Fetch (requires SEC-compliant User-Agent)
 python3 -m formalfinance.cli fetch-companyfacts 320193 \
-  --user-agent "FormalFinance/0.2.0 contact@example.com" \
+  --user-agent "FormalFinance/0.3.0 contact@example.com" \
   --output /tmp/apple.companyfacts.json
 
 # 2) Normalize to FormalFinance canonical filing
@@ -68,6 +74,21 @@ python3 -m formalfinance.cli evidence-pack /tmp/apple.filing.json --profile comp
   "entity": "Example Corp",
   "period_end": "2025-12-31",
   "taxonomy": "us-gaap-2025",
+  "ixbrl": {
+    "primary_document": {
+      "filename": "example-2025-10k.htm",
+      "is_inline_xbrl": true,
+      "contains_ix_header": true,
+      "xbrl_errors": []
+    },
+    "attachments": []
+  },
+  "taxonomy_package": {
+    "namespaces": [{ "prefix": "ff", "uri": "http://formalfinance.example/taxonomy/2025", "is_standard": false }],
+    "elements": [{ "concept": "ff:AdjustedEbitda", "is_custom": true }],
+    "labels": [{ "concept": "ff:AdjustedEbitda", "text": "Adjusted EBITDA" }],
+    "relationships": []
+  },
   "contexts": {
     "c2025": { "period_type": "instant", "instant": "2025-12-31" }
   },

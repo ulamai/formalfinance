@@ -10,6 +10,14 @@ def _fact_id(raw_id: str | None, index: int) -> str:
     return raw_id if raw_id else f"fact-{index:06d}"
 
 
+def _normalize_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _normalize_json(v) for k, v in sorted(value.items(), key=lambda item: item[0])}
+    if isinstance(value, list):
+        return [_normalize_json(v) for v in value]
+    return value
+
+
 @dataclass(frozen=True)
 class Context:
     id: str
@@ -87,10 +95,18 @@ class Filing:
     taxonomy: str | None
     contexts: dict[str, Context]
     facts: list[Fact]
+    ixbrl: dict[str, Any] = field(default_factory=dict)
+    taxonomy_package: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, obj: dict[str, Any]) -> "Filing":
         contexts_raw = obj.get("contexts", {}) or {}
+        if isinstance(contexts_raw, list):
+            contexts_raw = {
+                str(item.get("id", f"ctx-{idx + 1:06d}")): dict(item)
+                for idx, item in enumerate(contexts_raw)
+                if isinstance(item, dict)
+            }
         contexts = {
             ctx_id: Context.from_dict(ctx_id, ctx_obj)
             for ctx_id, ctx_obj in contexts_raw.items()
@@ -103,6 +119,8 @@ class Filing:
             entity=obj.get("entity"),
             period_end=obj.get("period_end"),
             taxonomy=obj.get("taxonomy"),
+            ixbrl=dict(obj.get("ixbrl", {}) or {}),
+            taxonomy_package=dict(obj.get("taxonomy_package", {}) or {}),
             contexts=contexts,
             facts=facts,
         )
@@ -137,6 +155,8 @@ class Filing:
             "entity": self.entity,
             "period_end": self.period_end,
             "taxonomy": self.taxonomy,
+            "ixbrl": _normalize_json(self.ixbrl),
+            "taxonomy_package": _normalize_json(self.taxonomy_package),
             "contexts": contexts,
             "facts": facts,
         }

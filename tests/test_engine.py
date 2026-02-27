@@ -35,6 +35,9 @@ class EngineTests(unittest.TestCase):
         rule_ids = [f.rule_id for f in result.findings]
         self.assertIn("acct.balance_sheet_equation", rule_ids)
         self.assertIn("ixbrl.required_concepts", rule_ids)
+        self.assertIn("ixbrl.submission_suspension_risk", rule_ids)
+        self.assertIn("taxonomy.calculation_no_cycles", rule_ids)
+        self.assertIn("taxonomy.relationship_target_exists", rule_ids)
 
     def test_certificate_issued_only_when_clean(self) -> None:
         clean = ValidationEngine(get_profile("ixbrl-gating")).validate(_load_example("filing_clean.json"))
