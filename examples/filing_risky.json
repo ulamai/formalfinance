@@ -1,0 +1,60 @@
+{
+  "accession": "0000123456-26-000002",
+  "cik": "0000123456",
+  "entity": "Example Risky Corp",
+  "period_end": "2025-12-31",
+  "taxonomy": "us-gaap-2025",
+  "contexts": {
+    "c2025": {
+      "period_type": "instant",
+      "instant": "2025-12-31",
+      "dimensions": {}
+    }
+  },
+  "facts": [
+    {
+      "id": "f-doc-type",
+      "concept": "dei:DocumentType",
+      "context_id": "c2025",
+      "value": "10-K"
+    },
+    {
+      "id": "f-entity-name",
+      "concept": "dei:EntityRegistrantName",
+      "context_id": "c2025",
+      "value": "Example Risky Corp"
+    },
+    {
+      "id": "f-assets",
+      "concept": "us-gaap:Assets",
+      "context_id": "c2025",
+      "value": 1000,
+      "unit": "USD",
+      "decimals": 0
+    },
+    {
+      "id": "f-assets-dup",
+      "concept": "us-gaap:Assets",
+      "context_id": "c2025",
+      "value": 999,
+      "unit": "USD",
+      "decimals": 0
+    },
+    {
+      "id": "f-liabilities",
+      "concept": "us-gaap:Liabilities",
+      "context_id": "c2025",
+      "value": 700,
+      "unit": "USD",
+      "decimals": 0
+    },
+    {
+      "id": "f-equity",
+      "concept": "us-gaap:StockholdersEquity",
+      "context_id": "c2025",
+      "value": 200,
+      "unit": "USD",
+      "decimals": 0
+    }
+  ]
+}
