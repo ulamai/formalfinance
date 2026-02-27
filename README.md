@@ -129,6 +129,26 @@ export FORMALFINANCE_API_KEYS="dev-key-1"
 python3 -m formalfinance.cli serve --host 127.0.0.1 --port 8080 --db-path /tmp/formalfinance.runs.sqlite3
 ```
 
+Optional LLM advisory layer (default is off):
+
+```bash
+# Default-off behavior: no LLM calls unless explicitly enabled.
+# Enable globally for the service using env:
+export FORMALFINANCE_LLM_ENABLED=1
+export FORMALFINANCE_LLM_PROVIDER=ollama        # or openai-compatible
+export FORMALFINANCE_LLM_MODEL=llama3.1:8b-instruct-q4_K_M
+export FORMALFINANCE_LLM_BASE_URL=http://127.0.0.1:11434
+
+# Or use CLI flags:
+python3 -m formalfinance.cli serve \
+  --host 127.0.0.1 --port 8080 \
+  --api-keys dev-key-1 \
+  --llm-enabled \
+  --llm-provider ollama \
+  --llm-model llama3.1:8b-instruct-q4_K_M \
+  --llm-base-url http://127.0.0.1:11434
+```
+
 Example API calls:
 
 ```bash
@@ -143,6 +163,17 @@ curl -s -X POST \
   -d @<(jq -n --argfile filing examples/filing_clean.json '{profile:"ixbrl-gating", filing:$filing, tenant_id:"demo"}')
 
 curl -s -H "X-API-Key: dev-key-1" "http://127.0.0.1:8080/v1/runs?limit=20&tenant_id=demo"
+
+# Per-request override (keeps default-off globally if desired)
+curl -s -X POST \
+  -H "X-API-Key: dev-key-1" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:8080/v1/validate \
+  -d @<(jq -n --argfile filing examples/filing_risky.json '{
+        profile:"fsd-consistency",
+        filing:$filing,
+        llm:{enabled:true, provider:"ollama", model:"llama3.1:8b-instruct-q4_K_M", base_url:"http://127.0.0.1:11434"}
+      }')
 ```
 
 Service endpoints:
@@ -155,6 +186,12 @@ Service endpoints:
 - `POST /v1/certify`
 - `POST /v1/compare-baseline`
 - `POST /v1/pilot-readiness`
+
+`/v1/validate` and `/v1/certify` return `advisory` in response:
+
+- `status: disabled` by default
+- `status: ok` when LLM suggestions are generated
+- `status: error` when configured provider call fails
 
 ### Docker
 

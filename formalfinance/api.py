@@ -14,6 +14,7 @@ from . import __version__
 from .baseline_compare import compare_with_baseline
 from .certificate import issue_certificate
 from .evidence import run_validation
+from .llm import LLMConfig, generate_advisory
 from .models import Filing
 from .pilot_readiness import build_readiness_report
 from .profiles import list_profiles, normalize_profile_name
@@ -37,6 +38,7 @@ class ServiceConfig:
     port: int = 8080
     db_path: str = ".formalfinance/runs.sqlite3"
     api_keys: tuple[str, ...] = ()
+    llm_default: LLMConfig = LLMConfig()
 
     @classmethod
     def from_args(
@@ -46,11 +48,34 @@ class ServiceConfig:
         port: int,
         db_path: str,
         api_keys_raw: str | None,
+        llm_enabled: bool | None = None,
+        llm_provider: str | None = None,
+        llm_model: str | None = None,
+        llm_base_url: str | None = None,
+        llm_api_key: str | None = None,
+        llm_timeout_seconds: int | None = None,
+        llm_max_findings: int | None = None,
     ) -> "ServiceConfig":
         env_keys = _split_api_keys(os.getenv("FORMALFINANCE_API_KEYS"))
         arg_keys = _split_api_keys(api_keys_raw)
         merged = sorted(env_keys | arg_keys)
-        return cls(host=host, port=port, db_path=db_path, api_keys=tuple(merged))
+        env_llm = LLMConfig.from_env()
+        merged_llm = LLMConfig(
+            enabled=env_llm.enabled if llm_enabled is None else bool(llm_enabled),
+            provider=(llm_provider or env_llm.provider or "none").strip().lower(),
+            model=(llm_model or env_llm.model or None),
+            base_url=(llm_base_url or env_llm.base_url or None),
+            api_key=(llm_api_key or env_llm.api_key or None),
+            timeout_seconds=max(3, int(llm_timeout_seconds or env_llm.timeout_seconds)),
+            max_findings=max(1, int(llm_max_findings or env_llm.max_findings)),
+        )
+        return cls(
+            host=host,
+            port=port,
+            db_path=db_path,
+            api_keys=tuple(merged),
+            llm_default=merged_llm,
+        )
 
 
 class FormalFinanceService:
@@ -100,6 +125,12 @@ class FormalFinanceService:
             metadata_json=json.dumps(metadata or {}, sort_keys=True),
         )
 
+    def _resolve_llm_config(self, payload: Any) -> LLMConfig:
+        request_llm = None
+        if isinstance(payload, dict):
+            request_llm = payload.get("llm")
+        return self.config.llm_default.with_overrides(request_llm)
+
     def handle(
         self,
         *,
@@ -121,6 +152,8 @@ class FormalFinanceService:
                 "service": "formalfinance",
                 "version": __version__,
                 "timestamp": _utc_now(),
+                "llm_default_enabled": self.config.llm_default.enabled,
+                "llm_default_provider": self.config.llm_default.provider,
             }
 
         if not self._is_authorized(headers):
@@ -215,7 +248,10 @@ class FormalFinanceService:
             except Exception as exc:
                 return 400, {"error": "invalid_filing", "message": str(exc)}
             report, result = run_validation(filing, profile, trace_path=None)
+            llm_config = self._resolve_llm_config(payload)
+            advisory = generate_advisory(report, llm_config)
             response: dict[str, Any] = {"report": report}
+            response["advisory"] = advisory
             if path == "/v1/certify":
                 if report["status"] == "clean":
                     response["certificate"] = issue_certificate(profile, result)
@@ -235,7 +271,12 @@ class FormalFinanceService:
                 latency_ms=latency_ms,
                 request_bytes=request_bytes,
                 response_bytes=response_bytes,
-                metadata={"risk_score": report["summary"]["risk_score"]},
+                metadata={
+                    "risk_score": report["summary"]["risk_score"],
+                    "llm_enabled": advisory.get("enabled"),
+                    "llm_provider": advisory.get("provider"),
+                    "llm_status": advisory.get("status"),
+                },
             )
             return 200, {"run_id": run_id, **response}
 

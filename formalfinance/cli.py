@@ -176,6 +176,13 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         port=args.port,
         db_path=args.db_path,
         api_keys_raw=args.api_keys,
+        llm_enabled=args.llm_enabled if args.llm_enabled else None,
+        llm_provider=args.llm_provider,
+        llm_model=args.llm_model,
+        llm_base_url=args.llm_base_url,
+        llm_api_key=args.llm_api_key,
+        llm_timeout_seconds=args.llm_timeout_seconds,
+        llm_max_findings=args.llm_max_findings,
     )
     print(
         json.dumps(
@@ -186,6 +193,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                 "port": config.port,
                 "db_path": config.db_path,
                 "api_key_count": len(config.api_keys),
+                "llm_default_enabled": config.llm_default.enabled,
+                "llm_default_provider": config.llm_default.provider,
+                "llm_default_model": config.llm_default.model,
             },
             indent=2,
             sort_keys=True,
@@ -418,6 +428,31 @@ def build_parser() -> argparse.ArgumentParser:
         "--api-keys",
         default=None,
         help="Comma-separated API keys. If omitted, also reads FORMALFINANCE_API_KEYS.",
+    )
+    serve_parser.add_argument(
+        "--llm-enabled",
+        action="store_true",
+        help="Enable default LLM advisory generation for API validate/certify responses.",
+    )
+    serve_parser.add_argument(
+        "--llm-provider",
+        default=None,
+        help="Default LLM provider: openai-compatible, ollama, mock, or none.",
+    )
+    serve_parser.add_argument("--llm-model", default=None, help="Default model name.")
+    serve_parser.add_argument("--llm-base-url", default=None, help="Default LLM endpoint base URL.")
+    serve_parser.add_argument("--llm-api-key", default=None, help="Default LLM API key.")
+    serve_parser.add_argument(
+        "--llm-timeout-seconds",
+        type=int,
+        default=None,
+        help="Default LLM timeout seconds.",
+    )
+    serve_parser.add_argument(
+        "--llm-max-findings",
+        type=int,
+        default=None,
+        help="Max findings to send to the LLM in advisory prompts.",
     )
     serve_parser.set_defaults(handler=_cmd_serve)
 

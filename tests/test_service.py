@@ -76,6 +76,7 @@ class ServiceApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("run_id", payload)
         self.assertEqual(payload["report"]["status"], "clean")
+        self.assertEqual(payload["advisory"]["status"], "disabled")
 
         list_status, list_payload = self._request(
             "GET",
@@ -98,6 +99,26 @@ class ServiceApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIsNone(payload["certificate"])
         self.assertEqual(payload["certificate_status"], "not_issued")
+        self.assertEqual(payload["advisory"]["status"], "disabled")
+
+    def test_validate_with_mock_llm(self) -> None:
+        headers = {"X-API-Key": "test-key"}
+        filing = self._load_filing("filing_risky.json")
+        status, payload = self._request(
+            "POST",
+            "/v1/validate",
+            payload={
+                "profile": "fsd-consistency",
+                "filing": filing,
+                "llm": {"enabled": True, "provider": "mock", "model": "mock-v1"},
+            },
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["advisory"]["status"], "ok")
+        self.assertEqual(payload["advisory"]["provider"], "mock")
+        self.assertTrue(isinstance(payload["advisory"].get("actions"), list))
+        self.assertGreater(len(payload["advisory"]["actions"]), 0)
 
     def test_compare_baseline(self) -> None:
         headers = {"X-API-Key": "test-key"}

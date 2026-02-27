@@ -20,6 +20,7 @@
 - Baseline discrepancy comparison metrics for validator agreement analysis
 - HTTP API service with API-key auth and run-history persistence for hosted deployments
 - Rulebook metadata generation for governance and customer audit mapping
+- Optional LLM advisory integration (default off) with provider connectors (Ollama/OpenAI-compatible)
 
 ## Phase 2: EDGAR rulebook and proof-carrying conformance
 
