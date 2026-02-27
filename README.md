@@ -56,7 +56,7 @@ python3 -m formalfinance.cli pilot-readiness
 ```bash
 # 1) Fetch (requires SEC-compliant User-Agent)
 python3 -m formalfinance.cli fetch-companyfacts 320193 \
-  --user-agent "FormalFinance/0.1.0 contact@example.com" \
+  --user-agent "FormalFinance/0.1.1 contact@example.com" \
   --output /tmp/apple.companyfacts.json
 
 # 2) Normalize to FormalFinance canonical filing
@@ -82,7 +82,7 @@ python3 -m formalfinance.cli discover-recent-filings \
   --max-filings 100 \
   --cik-limit 250 \
   --filed-on-or-after 2025-10-01 \
-  --user-agent "FormalFinance/0.1.0 contact@example.com" \
+  --user-agent "FormalFinance/0.1.1 contact@example.com" \
   --output /tmp/formalfinance.pilot.filings.json
 ```
 
